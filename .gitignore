@@ -14,3 +14,6 @@ Thumbs.db
 
 # Local backup files
 *.bak
+
+# Rust build output
+launcher/target/
