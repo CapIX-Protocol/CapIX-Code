@@ -7,7 +7,7 @@ vi.mock('../src/logger', () => ({
 
 import { WorkspaceSandbox } from '../src/sandbox';
 import { join, resolve } from 'node:path';
-import { mkdtempSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, symlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 // ── Shared setup / teardown ─────────────────────────────────────────────────
@@ -49,9 +49,16 @@ describe('WorkspaceSandbox: path traversal prevention', () => {
   });
 
   it('blocks symlink escape', () => {
-    // Create a symlink inside workspace pointing outside
-    symlinkSync('/etc', join(workspaceRoot, 'escape-link'));
-    expect(sandbox.isPathAllowed(join(workspaceRoot, 'escape-link/passwd'))).toBe(false);
+    const outside = mkdtempSync(join(tmpdir(), 'capix-outside-'));
+    try {
+      writeFileSync(join(outside, 'secret'), 'not-readable-through-workspace');
+      // `junction` avoids Windows developer-mode requirements; Unix treats it
+      // as a directory symlink. The target exists so realpath is meaningful.
+      symlinkSync(outside, join(workspaceRoot, 'escape-link'), 'junction');
+      expect(sandbox.isPathAllowed(join(workspaceRoot, 'escape-link/secret'))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('blocks archive extraction path traversal (zip slip)', () => {

@@ -252,8 +252,11 @@ export class WorkspaceSandbox {
 
   /** True if the path touches protected secret material. */
   isSecretPath(path: string): boolean {
-    const lower = path.toLowerCase();
-    const base = lower.split(sep).pop() ?? lower;
+    // Use a platform-neutral separator before matching. Windows paths use
+    // backslashes, while the protected-fragment policy is deliberately stored
+    // with forward slashes for deterministic behavior on every host.
+    const lower = path.toLowerCase().replace(/\\/g, '/');
+    const base = lower.split('/').pop() ?? lower;
 
     // .env* files (e.g., .env, .env.local, .env.production, .envrc)
     if (base.startsWith('.env')) return true;
