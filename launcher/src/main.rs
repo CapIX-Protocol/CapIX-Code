@@ -43,6 +43,10 @@ enum Command {
 
 fn install_root() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate launcher: {e}"))?;
+    // User-local installs expose the launcher through a PATH symlink. Resolve
+    // that link before locating the sibling engine/runtime/config bundle.
+    let exe = std::fs::canonicalize(&exe)
+        .map_err(|e| format!("cannot resolve launcher path {}: {e}", exe.display()))?;
     let bin = exe.parent().ok_or("launcher has no parent directory")?;
     Ok(if bin.file_name().and_then(|x| x.to_str()) == Some("bin") {
         bin.parent().unwrap_or(bin).to_path_buf()
