@@ -1,5 +1,5 @@
-# Cloned opencode source tree (~large)
-opencode/
+# Cloned upstream source tree (~large)
+upstream/
 
 # Build output
 dist/
@@ -11,3 +11,6 @@ bun.lock
 # OS
 .DS_Store
 Thumbs.db
+
+# Local backup files
+*.bak

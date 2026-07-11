@@ -1,0 +1,451 @@
+/**
+ * Credential broker — the privileged local identity boundary.
+ *
+ * Refs:
+ * - architecture §12.3 (Authentication/broker)
+ * - master prompt C3 (Native credential broker)
+ *
+ * Wire obligations:
+ * - keeps refresh token / device key out of OpenCode, plugins, shell tools,
+ *   args, config, environment, logs and crash bundles;
+ * - obtains audience/project-scoped short-lived access tokens with refresh
+ *   rotation and reuse detection;
+ * - proxies inference/control calls OR gives the Capix provider a one-time
+ *   local capability over an inherited pipe / `0600` Unix socket / locked
+ *   named pipe with peer PID/UID/SID checks;
+ * - closes inherited capabilities and scrubs secrets before any tool process
+ *   starts;
+ * - supports session-only login if secure storage is unavailable — never
+ *   falls back to plaintext.
+ *
+ * This is the TypeScript reference implementation. The canonical native
+ * broker ships in the Rust launcher (launcher/src); this module is the
+ * in-process shim the bundled engine talks to until the native broker is
+ * fully wired, and remains the contract surface for tests.
+ */
+
+import { logger } from './logger.js';
+
+export interface AccessToken {
+  token: string;
+  expiresAt: Date;
+}
+
+export interface DeviceSession {
+  deviceId: string;
+  accountIds: string[];
+  activeProjectId?: string;
+}
+
+export interface ExchangeResult {
+  type: 'success';
+  provider?: string;
+  refresh: string;
+  access: string;
+  expires: number;
+  accountId?: string;
+}
+
+export interface ApiKeyResult {
+  type: 'success';
+  key: string;
+  provider?: string;
+  metadata?: Record<string, string>;
+}
+
+export type AuthorizeResult = ExchangeResult | ApiKeyResult | { type: 'failed' };
+
+const SERVICE = 'capix-code';
+const ACCOUNT = 'capix-device-session';
+
+/** Marker thrown when secure storage is unavailable and session fallback is used. */
+export class SecureStorageUnavailableError extends Error {
+  constructor(message = 'secure storage unavailable') {
+    super(message);
+    this.name = 'SecureStorageUnavailableError';
+  }
+}
+
+/** Marker thrown when a refresh-token reuse is detected (rotation breach). */
+export class TokenReuseError extends Error {
+  constructor(message = 'refresh token reuse detected') {
+    super(message);
+    this.name = 'TokenReuseError';
+  }
+}
+
+/**
+ * CredentialBroker manages refresh tokens in OS secure storage (Keychain on
+ * macOS, Credential Manager on Windows, Secret Service on Linux).
+ *
+ * It NEVER falls back to plaintext. If secure storage is unavailable it
+ * degrades to an explicit session-only mode with a strong warning.
+ */
+export class CredentialBroker {
+  /** Session-only in-memory cache when secure storage is unavailable. */
+  private sessionRefresh: string | null = null;
+  private sessionAccess: AccessToken | null = null;
+  private lastRefreshSeen: string | null = null;
+  private deviceSession: DeviceSession | null = null;
+  private authorizeUrl: string | null = null;
+  private authorizationCode: string | null = null;
+
+  /** True when only session storage is available (plaintext fallback refused). */
+  readonly sessionOnly: boolean;
+
+  constructor() {
+    this.sessionOnly = !this.secureStorageAvailable();
+    if (this.sessionOnly) {
+      logger.warn('capix-broker: secure storage unavailable — session-only login', {});
+    }
+  }
+
+  /** Probe whether the OS secure storage backend is reachable. */
+  private secureStorageAvailable(): boolean {
+    // The native launcher injects a `capixSecureStore` global (a thin shim
+    // over keyring/libsecret/Credential Manager). In a plain Node/Bun process
+    // without the launcher we cannot guarantee secure storage, so we refuse to
+    // persist rather than fall back to plaintext.
+    const g = globalThis as unknown as { capixSecureStore?: unknown };
+    return typeof g.capixSecureStore === 'object' && g.capixSecureStore !== null;
+  }
+
+  /**
+   * Obtain a short-lived, audience/project-scoped access token for the
+   * provider. The provider receives ONLY this token; it never sees the
+   * refresh token.
+   */
+  async getAccessToken(
+    opts: {
+      projectId?: string;
+      scopes?: string[];
+    } = {}
+  ): Promise<AccessToken> {
+    if (this.sessionAccess && this.sessionAccess.expiresAt.getTime() > Date.now() + 60_000) {
+      return this.sessionAccess;
+    }
+    await this.refreshToken();
+    if (!this.sessionAccess) {
+      throw new Error('capix-broker: no access token after refresh');
+    }
+    // Note: the real native broker mints audience/project-scoped tokens here.
+    // We intentionally do not embed the project id in the token string itself.
+    void opts.projectId;
+    void opts.scopes;
+    return this.sessionAccess;
+  }
+
+  /**
+   * Rotate the refresh token and mint a fresh access token. Detects reuse of a
+   * previously-seen refresh token (rotation breach) and revokes the device.
+   */
+  async refreshToken(): Promise<void> {
+    const refresh = await this.loadRefreshToken();
+    if (!refresh) {
+      throw new Error('capix-broker: not logged in');
+    }
+    if (this.lastRefreshSeen !== null && this.lastRefreshSeen === refresh) {
+      // Same refresh presented twice in a row after a successful rotation is
+      // a reuse signal — revoke immediately.
+      await this.revokeDevice();
+      throw new TokenReuseError();
+    }
+
+    const res = await fetch('https://api.capix.network/v1/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'refresh_token',
+        refresh_token: refresh,
+        client: 'capix-code',
+      }),
+    });
+    if (!res.ok) {
+      if (res.status === 401) {
+        // Refresh token invalid/expired — clear it; caller must re-login.
+        await this.clearRefreshToken();
+        throw new Error('capix-broker: refresh token rejected (401)');
+      }
+      throw new Error(`capix-broker: token refresh failed (${res.status})`);
+    }
+    const body = (await res.json()) as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+      account_id?: string;
+    };
+    // Rotation: the server issues a new refresh token; store it and remember
+    // the one we just used so a replay is detectable.
+    this.lastRefreshSeen = refresh;
+    await this.storeRefreshToken(body.refresh_token);
+    this.sessionAccess = {
+      token: body.access_token,
+      expiresAt: new Date(Date.now() + body.expires_in * 1000),
+    };
+    if (body.account_id && !this.deviceSession) {
+      this.deviceSession = {
+        deviceId: 'session',
+        accountIds: [body.account_id],
+      };
+    }
+  }
+
+  /** Interactive browser authorization code + PKCE login. */
+  async login(): Promise<void> {
+    const { verifier, challenge } = await this.generatePkce();
+    const state = this.randomToken(24);
+    const codeChallenge = challenge;
+    // Build the authorize URL; the real broker opens the system browser.
+    const url = new URL('https://api.capix.network/v1/auth/authorize');
+    url.searchParams.set('response_type', 'code');
+    url.searchParams.set('client_id', 'capix-code');
+    url.searchParams.set('code_challenge', codeChallenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    url.searchParams.set('state', state);
+    url.searchParams.set('redirect_uri', 'http://127.0.0.1:0/callback');
+    // Stash PKCE verifier for exchangeCode().
+    this.pkceVerifier = verifier;
+    this.authState = state;
+    this.authorizeUrl = url.toString();
+    await this.openBrowser(url.toString());
+    logger.info('capix-broker: login started', { state });
+  }
+
+  /** Return the authorize URL (for the plugin auth hook). */
+  async authorizationUrl(): Promise<string> {
+    if (!this.authorizeUrl) await this.login();
+    if (!this.authorizeUrl) throw new Error('capix-broker: authorization was not initialized');
+    return this.authorizeUrl;
+  }
+
+  /**
+   * Deliver a loopback callback captured by the native launcher. State is
+   * checked here, at the privileged boundary, before the code is accepted.
+   */
+  submitAuthorizationCallback(input: { code: string; state: string }): void {
+    if (!this.authState || input.state !== this.authState) {
+      throw new Error('capix-broker: OAuth state mismatch');
+    }
+    if (!input.code) throw new Error('capix-broker: authorization code missing');
+    this.authorizationCode = input.code;
+  }
+
+  /** Exchange the authorization code for tokens (called by the auth hook callback). */
+  async exchangeCode(): Promise<ExchangeResult | { type: 'failed' }> {
+    // The native broker intercepts the loopback redirect and hands us the code.
+    const code = await this.awaitCode();
+    const verifier = this.pkceVerifier;
+    if (!verifier) throw new Error('capix-broker: no PKCE verifier');
+    const res = await fetch('https://api.capix.network/v1/auth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: verifier,
+        client_id: 'capix-code',
+        redirect_uri: 'http://127.0.0.1:0/callback',
+      }),
+    });
+    if (!res.ok) {
+      return { type: 'failed' };
+    }
+    const body = (await res.json()) as {
+      access_token: string;
+      refresh_token: string;
+      expires_in: number;
+      account_id?: string;
+    };
+    await this.storeRefreshToken(body.refresh_token);
+    this.sessionAccess = {
+      token: body.access_token,
+      expiresAt: new Date(Date.now() + body.expires_in * 1000),
+    };
+    this.deviceSession = {
+      deviceId: 'session',
+      accountIds: body.account_id ? [body.account_id] : [],
+    };
+    this.pkceVerifier = null;
+    this.authState = null;
+    this.authorizeUrl = null;
+    this.authorizationCode = null;
+    return {
+      type: 'success',
+      provider: 'capix',
+      refresh: body.refresh_token,
+      access: body.access_token,
+      expires: this.sessionAccess.expiresAt.getTime(),
+      accountId: body.account_id,
+    };
+  }
+
+  /** Register a project-scoped API key (automation only). */
+  async registerApiKey(key: string): Promise<ApiKeyResult | { type: 'failed' }> {
+    // Hash the key before comparison; never store the raw key in memory
+    // longer than needed. The server validates and returns metadata.
+    const digest = await this.sha256(key);
+    const res = await fetch('https://api.capix.network/v1/auth/api-key/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key_digest: digest, client: 'capix-code' }),
+    });
+    if (!res.ok) {
+      return { type: 'failed' };
+    }
+    const body = (await res.json()) as { project_id?: string; label?: string };
+    // API keys are session-only; no refresh token is minted.
+    this.sessionAccess = {
+      token: key,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    };
+    return {
+      type: 'success',
+      key: `cpk_${digest.slice(0, 12)}`,
+      provider: 'capix',
+      metadata: body.project_id ? { project_id: body.project_id } : {},
+    };
+  }
+
+  /** Logout and clear the local refresh token. */
+  async logout(): Promise<void> {
+    try {
+      const refresh = await this.loadRefreshToken();
+      if (refresh) {
+        await fetch('https://api.capix.network/v1/auth/revoke', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: refresh, client: 'capix-code' }),
+        });
+      }
+    } finally {
+      await this.clearRefreshToken();
+      this.sessionAccess = null;
+      this.sessionRefresh = null;
+      this.lastRefreshSeen = null;
+      this.deviceSession = null;
+    }
+  }
+
+  /** Revoke the entire device session and rotate the device key. */
+  async revokeDevice(): Promise<void> {
+    if (!this.deviceSession) return;
+    try {
+      const access = this.sessionAccess?.token;
+      if (access) {
+        await fetch('https://api.capix.network/v1/auth/device/revoke', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${access}` },
+        });
+      }
+    } finally {
+      await this.clearRefreshToken();
+      this.sessionAccess = null;
+      this.sessionRefresh = null;
+      this.lastRefreshSeen = null;
+      this.deviceSession = null;
+    }
+  }
+
+  // ── Secure storage primitives ───────────────────────────────────────────
+
+  private async loadRefreshToken(): Promise<string | null> {
+    if (this.sessionOnly) return this.sessionRefresh;
+    const store = (
+      globalThis as { capixSecureStore?: { get: (s: string, a: string) => Promise<string | null> } }
+    ).capixSecureStore;
+    try {
+      return (await store!.get(SERVICE, ACCOUNT)) ?? this.sessionRefresh;
+    } catch (err) {
+      logger.warn('capix-broker: secure read failed', { error: (err as Error).message });
+      return this.sessionRefresh;
+    }
+  }
+
+  private async storeRefreshToken(token: string): Promise<void> {
+    this.sessionRefresh = token;
+    if (this.sessionOnly) return;
+    const store = (
+      globalThis as {
+        capixSecureStore?: { set: (s: string, a: string, v: string) => Promise<void> };
+      }
+    ).capixSecureStore;
+    try {
+      await store!.set(SERVICE, ACCOUNT, token);
+    } catch (err) {
+      logger.warn('capix-broker: secure write failed; session-only', {
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  private async clearRefreshToken(): Promise<void> {
+    this.sessionRefresh = null;
+    if (this.sessionOnly) return;
+    const store = (
+      globalThis as { capixSecureStore?: { delete: (s: string, a: string) => Promise<void> } }
+    ).capixSecureStore;
+    try {
+      await store!.delete(SERVICE, ACCOUNT);
+    } catch (err) {
+      logger.warn('capix-broker: clear failed — best effort', { error: (err as Error).message });
+    }
+  }
+
+  // ── PKCE + browser helpers ──────────────────────────────────────────────
+
+  private pkceVerifier: string | null = null;
+  private authState: string | null = null;
+
+  private async generatePkce(): Promise<{ verifier: string; challenge: string }> {
+    const verifier = this.randomToken(64);
+    return { verifier, challenge: await this.sha256(verifier) };
+  }
+
+  private randomToken(len: number): string {
+    const bytes = new Uint8Array(len);
+    globalThis.crypto.getRandomValues(bytes);
+    return this.base64Url(bytes);
+  }
+
+  private base64Url(bytes: Uint8Array): string {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    let out = '';
+    for (let i = 0; i < bytes.length; i += 3) {
+      const b0 = bytes[i];
+      const b1 = bytes[i + 1];
+      const b2 = bytes[i + 2];
+      out += alphabet[b0 >> 2];
+      out += alphabet[((b0 & 3) << 4) | ((b1 ?? 0) >> 4)];
+      if (i + 1 < bytes.length) out += alphabet[((b1 & 15) << 2) | ((b2 ?? 0) >> 6)];
+      if (i + 2 < bytes.length) out += alphabet[b2 & 63];
+    }
+    return out;
+  }
+
+  private async sha256(input: string): Promise<string> {
+    const data = new TextEncoder().encode(input);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', data);
+    return this.base64Url(new Uint8Array(digest));
+  }
+
+  private async openBrowser(url: string): Promise<void> {
+    // The native launcher owns the browser open. In-process we no-op; the
+    // TUI surfaces the URL for the user.
+    logger.info('capix-broker: open browser', { url });
+  }
+
+  private async awaitCode(): Promise<string> {
+    if (this.authorizationCode) return this.authorizationCode;
+    const native = (
+      globalThis as {
+        capixOAuth?: { awaitCallback: () => Promise<{ code: string; state: string }> };
+      }
+    ).capixOAuth;
+    if (!native) {
+      throw new Error('capix-broker: native OAuth callback bridge unavailable');
+    }
+    const callback = await native.awaitCallback();
+    this.submitAuthorizationCallback(callback);
+    return this.authorizationCode!;
+  }
+}

@@ -5,12 +5,16 @@
     "moduleResolution": "bundler",
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@capix/contracts": ["../capix-protocol/packages/contracts/src/index.ts"]
+    }
   },
-  "include": ["src/**/*", "brand/**/*"],
+  "include": ["src/**/*", "brand/**/*", "types/**/*"],
   "exclude": ["node_modules", "dist"]
 }

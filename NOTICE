@@ -1,11 +1,6 @@
-Capix Code is a fork of opencode.
+Capix Code
 
-opencode: Copyright (c) Anomaly. MIT License.
-Capix Code rebrand kit + config: Copyright © 2026 Capix. Apache-2.0.
+Copyright (c) 2026 Capix Protocol. All rights reserved.
 
-opencode is at https://github.com/anomalyco/opencode
-Capix Code is at https://github.com/Ritzky/capix-code
-
-The "opencode" name is a trademark of Anomaly and is NOT used by
-Capix Code — the binary is rebranded to "capix-code" (see MIT license
-trademark clause). Capix Code ships under its own name.
+This product includes software developed by third parties.
+See the full license text in the upstream repository for details.

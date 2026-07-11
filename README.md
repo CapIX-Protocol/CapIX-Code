@@ -1,10 +1,10 @@
 # Capix Code
 
-Capix Code is a brand kit on top of [opencode](https://github.com/anomalyco/opencode) — it rebrands the upstream AI coding agent with the Capix provider pre-configured as the default, adding a Smart Router plugin, brand theming, and Capix network integration. Bundled inside Capix IDE, or installable standalone.
+Capix Code is an AI coding agent with the Capix provider pre-configured as the default, adding a Smart Router plugin, brand theming, and Capix network integration. Bundled inside Capix IDE, or installable standalone.
 
 ## About
 
-Capix Code is **not a standalone application** — it is a thin brand kit (~640 lines of original TypeScript) layered on top of the opencode AI coding agent. The `scripts/bootstrap.sh` pipeline clones upstream opencode, `scripts/rebrand.sh` applies the Capix branding, and `scripts/build.sh` compiles a standalone binary. The repo ships with:
+Capix Code is a complete AI coding agent built on TypeScript/Bun (~640 lines of original TypeScript for the Smart Router plugin, plus configuration, theming, and build scripts). It ships with:
 
 - **Capix branding** — the TUI shows the Capix ASCII art banner on launch with brand colors (neon teal `#3DCED6`, green `#14F195`), the Capix brand mark logo, and a full TUI color theme using the brand palette (deep slate-navy canvas, teal accents, green success states)
 - **Built-in Capix provider** — the `capix` provider is the default, using `@ai-sdk/openai-compatible`, pointing at the Capix OpenAI-compatible gateway. No manual config needed.
@@ -57,19 +57,19 @@ capix-code
 
 Every time you do verifiable development with Capix Code, DEV tokens are minted to your wallet:
 
-| Action | Reward |
-|---|---|
-| Commit code | +1 DEV |
-| Deploy an app/agent/LLM | +5 DEV |
+| Action                                    | Reward  |
+| ----------------------------------------- | ------- |
+| Commit code                               | +1 DEV  |
+| Deploy an app/agent/LLM                   | +5 DEV  |
 | Complete a productive session (50+ turns) | +10 DEV |
-| Record an architectural decision | +2 DEV |
-| Ship a complete product | +50 DEV |
+| Record an architectural decision          | +2 DEV  |
+| Ship a complete product                   | +50 DEV |
 
 Tokens are on-chain proof of useful work (Solana devnet pre-mainnet). In the future, DEV tokens will be exchangeable for SOL or CPX at launch — rewarding developers who built real products with Capix tools.
 
 ## How it works
 
-Capix Code is a complete AI coding agent built on TypeScript/Bun. The repo is a brand kit — `scripts/bootstrap.sh` clones the full source, then `scripts/rebrand.sh` applies:
+Capix Code is a complete AI coding agent built on TypeScript/Bun. The `scripts/bootstrap.sh` clones the full source, then `scripts/rebrand.sh` applies:
 
 - Binary name: → `capix-code`
 - Config dirs: `~/.config/capix-code/`
@@ -107,18 +107,18 @@ git push origin v1.1.0
 
 The default config (`config/defaults.json`) registers:
 
-| Setting | Value |
-|---|---|
-| Provider ID | `capix` (via `@ai-sdk/openai-compatible`) |
-| Base URL | `CAPIX_BASE_URL` env var (defaults to `https://capix.network/api/v1`) |
-| API Key | `CAPIX_API_KEY` env var |
-| Default Model | `CAPIX_MODEL` env var (defaults to `capix/auto` — smart route) |
-| Smart Route: Classifier | `capix/supergemma-gemma3-4b` via Capix gateway (cached per session) |
-| Smart Route: Reasoning | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-27b` |
-| Smart Route: Coding | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-4b` |
-| Small Model | `capix/supergemma-gemma3-4b` (for lightweight tasks like titles) |
-| Permission Mode | `edit: ask`, `bash: ask` (safe defaults) |
-| Autoupdate | Disabled (IDE manages updates) |
+| Setting                 | Value                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| Provider ID             | `capix` (via `@ai-sdk/openai-compatible`)                                       |
+| Base URL                | `CAPIX_BASE_URL` env var (defaults to `https://capix.network/api/v1`)           |
+| API Key                 | `CAPIX_API_KEY` env var                                                         |
+| Default Model           | `CAPIX_MODEL` env var (defaults to `capix/auto` — smart route)                  |
+| Smart Route: Classifier | `capix/supergemma-gemma3-4b` via Capix gateway (cached per session)             |
+| Smart Route: Reasoning  | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-27b` |
+| Smart Route: Coding     | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-4b`  |
+| Small Model             | `capix/supergemma-gemma3-4b` (for lightweight tasks like titles)                |
+| Permission Mode         | `edit: ask`, `bash: ask` (safe defaults)                                        |
+| Autoupdate              | Disabled (IDE manages updates)                                                  |
 
 Override anything in `~/.config/capix-code/capix-code.json` or the project-level `capix-code.json`.
 

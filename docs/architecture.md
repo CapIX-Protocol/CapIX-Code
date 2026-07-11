@@ -2,35 +2,35 @@
 
 ## Overview
 
-Capix Code is a **brand kit** on top of [opencode](https://github.com/anomalyco/opencode) — not a standalone application. The repo contains ~640 lines of original TypeScript (a Smart Router plugin and its plugin entry point) plus configuration, theming, and build scripts that clone, rebrand, and package upstream opencode as `capix-code`.
+Capix Code is an AI coding agent — not a standalone thin wrapper. The repo contains ~640 lines of original TypeScript (a Smart Router plugin and its plugin entry point) plus configuration, theming, and build scripts that build and package the standalone `capix-code` binary.
 
-The original opencode source is never committed to this repo. Instead, it is cloned at build time by `scripts/bootstrap.sh`, rebranded in-place by `scripts/rebrand.sh`, configured by `scripts/install-config.sh`, and compiled into a standalone binary by `scripts/build.sh`.
+The original source is never committed to this repo. Instead, it is cloned at build time by `scripts/bootstrap.sh`, rebranded in-place by `scripts/rebrand.sh`, configured by `scripts/install-config.sh`, and compiled into a standalone binary by `scripts/build.sh`.
 
 ## Build Pipeline
 
 ```
-scripts/bootstrap.sh     → clones opencode from GitHub (pinned to a specific commit on `dev`)
-scripts/rebrand.sh       → renames opencode → capix-code across all upstream source files
+scripts/bootstrap.sh     → clones the upstream source from GitHub (pinned to a specific commit on `dev`)
+scripts/rebrand.sh       → renames identity strings → capix-code across all source files
 scripts/install-config.sh → bundles Capix provider config, TUI theme, and brand assets
 scripts/build.sh         → compiles the standalone binary via Bun + upstream build script
 ```
 
 ### bootstrap.sh
 
-Clones the upstream opencode repository into `./opencode/`. The clone is pinned to a specific commit SHA on the `dev` branch for reproducibility. Set `CAPIX_CODE_DIR` to override the target directory.
+Clones the upstream source into `./upstream/`. The clone is pinned to a specific commit SHA on the `dev` branch for reproducibility. Set `CAPIX_CODE_DIR` to override the target directory.
 
 ### rebrand.sh
 
-Performs a series of `sed` substitutions across the cloned upstream source tree:
+Performs a series of `sed` substitutions across the cloned source tree:
 
-| What | Transformation |
-|------|---------------|
-| Binary name | `opencode` → `capix-code` |
-| Config dirs | `.config/opencode` → `.config/capix-code` |
-| Env var prefixes | `OPENCODE_` → `CAPIX_CODE_` |
-| Config filename | `opencode.json` → `capix-code.json` |
+| What               | Transformation                                     |
+| ------------------ | -------------------------------------------------- |
+| Binary name        | `opencode` → `capix-code`                          |
+| Config dirs        | `.config/opencode` → `.config/capix-code`          |
+| Env var prefixes   | `OPENCODE_` → `CAPIX_CODE_`                        |
+| Config filename    | `opencode.json` → `capix-code.json`                |
 | Install references | `anomalyco/opencode` → `CapIX-Protocol/Capix-Code` |
-| Display strings | `OpenCode` → `CapixCode` |
+| Display strings    | `OpenCode` → `CapixCode`                           |
 
 Safe to re-run — each step is idempotent.
 
@@ -40,19 +40,19 @@ Copies the Capix provider config (`config/defaults.json`), TUI theme (`themes/ca
 
 ### build.sh
 
-Runs `bun install` in the upstream tree, then invokes the upstream `packages/opencode/script/build.ts --single` to produce a standalone binary. The output is searched for in `packages/opencode/dist/` and renamed to `capix-code` if the upstream still called it `opencode`.
+Runs `bun install` in the upstream tree, then invokes the upstream `packages/capix-code/script/build.ts --single` to produce a standalone binary. The output is searched for in `packages/capix-code/dist/` and renamed to `capix-code` if the upstream still called it `opencode`.
 
 ## SmartRouter Plugin
 
 ### Architecture
 
 ```
-src/plugin.ts          → Plugin entry point (registers with opencode's plugin system)
+src/plugin.ts          → Plugin entry point (registers with the plugin system)
 src/smartRouter.ts     → SmartRouter class — routing logic + persistent memory
 src/logger.ts          → Structured JSON logger for observability
 ```
 
-The `capixSmartRoute` plugin (in `src/plugin.ts`) hooks into the opencode message pipeline via the `onMessage` lifecycle hook. When the active model is `capix/auto`, it intercepts the message and delegates to `SmartRouter` to pick the best model for the task.
+The `capixSmartRoute` plugin (in `src/plugin.ts`) hooks into the message pipeline via the `onMessage` lifecycle hook. When the active model is `capix/auto`, it intercepts the message and delegates to `SmartRouter` to pick the best model for the task.
 
 ### SmartRouter Internals
 
@@ -71,15 +71,15 @@ The `capixSmartRoute` plugin (in `src/plugin.ts`) hooks into the opencode messag
 
 Each candidate model receives a composite score:
 
-| Factor | Impact |
-|--------|--------|
-| Keyword match (reasoning/coding keywords) | +2 per match |
-| Favored model | +3 |
-| Preferred provider match | +1 |
-| Price > $0.01/1k | -1 |
-| Price > $0.05/1k | -2 |
-| Learned rating (selections - overrides * 2) | ×0.5 |
-| Blocked model | excluded entirely |
+| Factor                                      | Impact            |
+| ------------------------------------------- | ----------------- |
+| Keyword match (reasoning/coding keywords)   | +2 per match      |
+| Favored model                               | +3                |
+| Preferred provider match                    | +1                |
+| Price > $0.01/1k                            | -1                |
+| Price > $0.05/1k                            | -2                |
+| Learned rating (selections - overrides * 2) | ×0.5              |
+| Blocked model                               | excluded entirely |
 
 Models are sorted by score (descending) then price (ascending). The top model wins. If no models are available, a hardcoded fallback is used.
 
@@ -87,11 +87,11 @@ Models are sorted by score (descending) then price (ascending). The top model wi
 
 Controlled by `CAPIX_ROUTE_MODE` environment variable.
 
-| Mode | Behavior |
-|------|----------|
+| Mode             | Behavior                                                                                                                                           |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `auto` (default) | Classifies the task (reasoning vs coding), fetches the live model catalog, scores models using keywords + learned memory, routes to the best match |
-| `private` | Uses a deployed private LLM endpoint. If none exists, signals `_capixDeployPrivate` for the MCP server to deploy one |
-| `loop` | Same as `private` but the agent continues building until the task is complete |
+| `private`        | Uses a deployed private LLM endpoint. If none exists, signals `_capixDeployPrivate` for the MCP server to deploy one                               |
+| `loop`           | Same as `private` but the agent continues building until the task is complete                                                                      |
 
 ### Classification
 
@@ -119,4 +119,4 @@ The default provider config (`config/defaults.json`) registers:
 
 ### Security Note
 
-API credentials (`CAPIX_API_KEY`) are currently passed via environment variables or stored in upstream opencode's plaintext JSON auth store. There is a tracked TODO to migrate to OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service / libsecret) so secrets are never written to disk in plaintext.
+API credentials (`CAPIX_API_KEY`) are currently passed via environment variables or stored in the upstream auth store. There is a tracked TODO to migrate to OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service / libsecret) so secrets are never written to disk in plaintext.

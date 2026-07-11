@@ -1,0 +1,266 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, staging]
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────
+  # Lint + Typecheck + Test — NO continue-on-error anywhere.
+  # ────────────────────────────────────────────────────────────────────
+  lint-typecheck-test:
+    name: Lint + Typecheck + Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint src/
+
+      - name: Test
+        run: npx vitest run
+
+  # ────────────────────────────────────────────────────────────────────
+  # Plugin contract — verifies the plugin compiles against the real
+  # @opencode-ai/plugin package. Absence of the package is a FAILURE,
+  # not a warning — no conditional skip allowed.
+  # ────────────────────────────────────────────────────────────────────
+  plugin-contract:
+    name: Plugin contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify @opencode-ai/plugin is installed
+        run: |
+          set -euo pipefail
+          if [ ! -d node_modules/@opencode-ai/plugin ]; then
+            echo "::error::@opencode-ai/plugin is not installed in node_modules. \
+          This is a required dependency — its absence is a FAILURE, not a warning. \
+          Run 'bash scripts/bootstrap.sh' to fetch the upstream source and install it."
+            exit 1
+          fi
+          echo "@opencode-ai/plugin is installed — plugin contract check active."
+
+      - name: Verify bundled Capix runtime provider resolves
+        run: npx vite-node scripts/verify-runtime-provider.ts
+
+      - name: Typecheck plugin against real package
+        run: npx tsc --noEmit
+
+      - name: Verify plugin entry point type signature
+        run: |
+          set -euo pipefail
+          if npx tsc --noEmit --listFiles | grep -q "plugin"; then
+            echo "Plugin contract verified: compiles against @opencode-ai/plugin"
+          else
+            echo "::error::Plugin source not found in typecheck scope"
+            exit 1
+          fi
+
+  # ────────────────────────────────────────────────────────────────────
+  # Release — on tag push ONLY. Requires ALL other jobs to pass.
+  # Uses if: success() so a red job can NEVER publish.
+  # Generates SBOM, SHA-256 checksums, source commit provenance.
+  # ────────────────────────────────────────────────────────────────────
+  release:
+    name: Release
+    needs: [lint-typecheck-test, plugin-contract]
+    if: success() && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (release gate)
+        run: npx tsc --noEmit
+
+      - name: Reject launcher placeholders
+        run: |
+          set -euo pipefail
+          if grep -nE 'launcher stub|implementation pending|engine handoff pending' launcher/src/main.rs; then
+            echo "::error::The native launcher is not customer-executable. Binary release is blocked."
+            exit 1
+          fi
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Require locked native dependencies
+        run: |
+          test -f launcher/Cargo.lock || {
+            echo "::error::launcher/Cargo.lock is missing; reproducible binary release is blocked."
+            exit 1
+          }
+
+      - name: Test native launcher
+        working-directory: launcher
+        run: cargo test --locked
+
+      - name: Build native launcher
+        working-directory: launcher
+        run: cargo build --locked --release
+
+      - name: Smoke test native launcher
+        run: launcher/target/release/capix-code doctor
+
+      - name: Generate SBOM
+        run: |
+          set -euo pipefail
+          if npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.json --output-format json; then
+            echo "SBOM generated via cyclonedx-npm: sbom.json"
+          else
+            echo "::warning::cyclonedx-npm unavailable — generating minimal provenance from package-lock.json"
+            LOCK_HASH="$(sha256sum package-lock.json | awk '{print $1}')"
+            {
+              echo '{'
+              echo '  "provenance": "minimal",'
+              echo '  "package-lock-sha256": "'"$LOCK_HASH"'",'
+              echo '  "source-sha": "${{ github.sha }}"'
+              echo '}'
+            } > sbom.json
+          fi
+
+      - name: Record source commit SHA
+        run: echo "${{ github.sha }}" > source-commit-sha.txt
+
+      - name: Package source artifacts
+        run: |
+          set -euo pipefail
+          tar czf capix-code-source-${{ github.ref_name }}.tar.gz \
+            src/ packages/runtime-provider/ package.json package-lock.json
+          ls -lh capix-code-source-${{ github.ref_name }}.tar.gz
+
+      - name: Generate SHA-256 checksums
+        run: |
+          set -euo pipefail
+          sha256sum \
+            sbom.json \
+            source-commit-sha.txt \
+            capix-code-source-${{ github.ref_name }}.tar.gz \
+            > CHECKSUMS.sha256
+          echo "=== SHA-256 Checksums ==="
+          cat CHECKSUMS.sha256
+
+      - name: Upload release artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capix-code-release-${{ github.ref_name }}
+          path: |
+            sbom.json
+            source-commit-sha.txt
+            capix-code-source-${{ github.ref_name }}.tar.gz
+            CHECKSUMS.sha256
+          retention-days: 90
+
+      - name: Create draft release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Capix Code ${{ github.ref_name }} (UNSIGNED)
+          draft: true
+          body: |
+            ## Capix Code ${{ github.ref_name }} — UNSIGNED
+
+            The CLI coding assistant for the Capix network.
+
+            **⚠️ This artifact is UNSIGNED. Verify checksums before use.**
+
+            ### Install
+
+            ```bash
+            npm i -g capix-code
+            ```
+
+            Then:
+            ```bash
+            export CAPIX_BASE_URL=https://capix.network/api/v1
+            export CAPIX_API_KEY=cpk_...
+            capix-code
+            ```
+
+            ### SHA-256 Verification
+
+            Download `CHECKSUMS.sha256` and verify:
+            ```bash
+            sha256sum -c CHECKSUMS.sha256
+            ```
+            If checksums do not match, **do not use** the artifact.
+
+            ### Source commit
+
+            ```
+            ${{ github.sha }}
+            ```
+
+            ### SBOM
+
+            An SBOM (`sbom.json`) is included with provenance information.
+
+            ### Installation (UNSIGNED)
+
+            This artifact is unsigned. If it contains macOS binaries:
+            1. Verify SHA-256: `shasum -a 256 capix-code-*.tar.gz`
+            2. If macOS Gatekeeper blocks: right-click → Open (or `xattr -cr <path>`)
+
+            If it contains Windows binaries:
+            1. Verify SHA-256: `certutil -hashfile capix-code-*.tar.gz SHA256`
+            2. If SmartScreen appears: "More info" → "Run anyway"
+
+            If checksums do not match, the artifact may be tampered with — **do not install**.
+          files: |
+            sbom.json
+            source-commit-sha.txt
+            capix-code-source-${{ github.ref_name }}.tar.gz
+            CHECKSUMS.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,10 @@
+{
+  "provider": "capix",
+  "model": "capix/auto",
+  "apiBaseUrl": "https://api.capix.network",
+  "inferenceBaseUrl": "https://inference.capix.network",
+  "updateBaseUrl": "https://updates.capix.network",
+  "sandbox": "restricted",
+  "telemetry": false,
+  "contentLogging": false
+}

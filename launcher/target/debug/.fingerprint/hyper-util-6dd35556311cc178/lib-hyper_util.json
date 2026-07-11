@@ -1,0 +1,36 @@
+{
+  "rustc": 776363091828236830,
+  "features": "[\"client\", \"client-legacy\", \"client-proxy\", \"default\", \"http1\", \"tokio\"]",
+  "declared_features": "[\"__internal_happy_eyeballs_tests\", \"client\", \"client-legacy\", \"client-pool\", \"client-proxy\", \"client-proxy-system\", \"default\", \"full\", \"http1\", \"http2\", \"server\", \"server-auto\", \"server-graceful\", \"service\", \"tokio\", \"tracing\"]",
+  "target": 11100538814903412163,
+  "profile": 5347358027863023418,
+  "path": 9929025502565482779,
+  "deps": [
+    [784494742817713399, "tower_service", false, 6221059094169441071],
+    [2251399859588827949, "pin_project_lite", false, 12653407340812989593],
+    [2636299918121164457, "socket2", false, 14000992606409846010],
+    [3035134586790830808, "hyper", false, 3948431376177427324],
+    [5898568623609459682, "futures_util", false, 15910653456929601796],
+    [6803352382179706244, "percent_encoding", false, 12422262249149321287],
+    [7098700569944897890, "libc", false, 4816828142560438197],
+    [7527774033549147775, "ipnet", false, 12769694578528582090],
+    [9128867168860799549, "futures_channel", false, 11387535012396821562],
+    [9394460649638301237, "tokio", false, 11938670444764896910],
+    [11926622812581095017, "bytes", false, 10298934129733680324],
+    [13077212702700853852, "base64", false, 698405234591994601],
+    [14084095096285906100, "http_body", false, 10916831394063853153],
+    [14757622794040968908, "tracing", false, 13704616752584738578],
+    [17371538545939333701, "http", false, 6571100681990569600]
+  ],
+  "local": [
+    {
+      "CheckDepInfo": {
+        "dep_info": "debug/.fingerprint/hyper-util-6dd35556311cc178/dep-lib-hyper_util",
+        "checksum": false
+      }
+    }
+  ],
+  "rustflags": [],
+  "config": 8247474407144887393,
+  "compile_kind": 0
+}

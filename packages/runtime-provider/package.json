@@ -1,0 +1,10 @@
+{
+  "name": "@capix/runtime-provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@ai-sdk/provider": "3.0.8"
+  }
+}

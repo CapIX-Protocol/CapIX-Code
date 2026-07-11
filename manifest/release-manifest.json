@@ -1,0 +1,45 @@
+{
+  "id": "rel_capix_code_0_1_0",
+  "version": 1,
+  "createdAt": "TEMPLATE",
+  "createdBy": "release-engineering",
+  "immutable": true,
+  "launcher": { "sourceSha": "TEMPLATE", "version": "0.1.0" },
+  "opencode": { "sourceSha": "TEMPLATE", "version": "TEMPLATE" },
+  "plugin": { "sourceSha": "TEMPLATE", "version": "0.1.0" },
+  "provider": { "sourceSha": "TEMPLATE", "version": "0.1.0" },
+  "acpVersion": "1",
+  "ipcVersion": "1",
+  "apiRange": { "min": "v1", "max": "v1" },
+  "platforms": {
+    "darwin-arm64": {
+      "url": "TEMPLATE",
+      "sha256": "TEMPLATE",
+      "signatureUrl": "TEMPLATE",
+      "sizeBytes": 0
+    },
+    "darwin-x64": {
+      "url": "TEMPLATE",
+      "sha256": "TEMPLATE",
+      "signatureUrl": "TEMPLATE",
+      "sizeBytes": 0
+    },
+    "linux-x64": {
+      "url": "TEMPLATE",
+      "sha256": "TEMPLATE",
+      "signatureUrl": "TEMPLATE",
+      "sizeBytes": 0
+    },
+    "win32-x64": {
+      "url": "TEMPLATE",
+      "sha256": "TEMPLATE",
+      "signatureUrl": "TEMPLATE",
+      "sizeBytes": 0
+    }
+  },
+  "sbomRef": "TEMPLATE",
+  "provenanceRef": "TEMPLATE",
+  "signatureRef": "TEMPLATE",
+  "thirdPartyNoticesRef": "TEMPLATE",
+  "rollbackConstraints": ["retain-n-1"]
+}

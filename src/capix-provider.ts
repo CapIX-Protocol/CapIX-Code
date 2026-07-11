@@ -1,0 +1,569 @@
+/**
+ * Capix provider — real implementation against the OpenCode plugin contract.
+ *
+ * This module is the "Capix-specific provider implementation" called for in
+ * CAPIX_CUSTOMER_PRODUCTION_ARCHITECTURE.md §12.4: it deliberately does NOT use
+ * generic OpenAI compatibility, because that layer would lose tool-call
+ * streaming, cancellation, typed errors, and receipt/usage metadata.
+ *
+ * Contract obligations enforced here (master prompt C2/C4, architecture §12.3–12.4):
+ *
+ * - Communicates ONLY with the local broker. It never holds a refresh/device
+ *   token and never calls the CapIX control/inference edge directly with a
+ *   stored bearer. The broker hands a one-shot short-lived access token over an
+ *   inherited descriptor / locked per-user socket with peer PID/UID checks.
+ * - Uses generated SDK types (@capix/contracts inference-stream + route-receipt
+ *   and @opencode-ai/sdk Model/Provider/Auth types) for type safety.
+ * - Supports streaming, cancellation (AbortSignal), tool calls, and
+ *   usage/receipt metadata.
+ * - Never classifies prompts, scores providers, retains router memory, or
+ *   rewrites a private base URL. Model selection is server-authoritative.
+ * - HTTP error mapping: 401 refresh-once; 402 top-up UI; 409 duplicate;
+ *   429 retry timing; fallback only before first customer-visible output.
+ */
+
+import type { Model, Provider, Auth } from '@opencode-ai/sdk/v2';
+import type { ProviderHook, ProviderHookContext } from '@opencode-ai/plugin';
+import type {
+  InferenceRequest,
+  InferenceStreamChunk,
+  CapixRouteEvent,
+  ContentDeltaEvent,
+  ToolDeltaEvent,
+  CapixUsageEvent,
+  CapixFinalEvent,
+  CapixErrorEvent,
+  InferenceErrorResponse,
+} from '@capix/contracts';
+
+import { CredentialBroker } from './broker.js';
+import { logger } from './logger.js';
+
+/** Default production origins. Overridable by config; never by env secret. */
+export const CAPIX_API_BASE = 'https://api.capix.network';
+export const CAPIX_INFERENCE_BASE = 'https://inference.capix.network';
+
+/** Client/release identification attached to every request. */
+export interface CapixClientMeta {
+  releaseId: string;
+  client: 'capix-code';
+  clientVersion: string;
+  pluginVersion: string;
+  acpVersion: string;
+}
+
+/** Options handed to the streaming entry point. */
+export interface CapixStreamOptions {
+  /** Cancellation signal from the engine/TUI. Honored at every SSE boundary. */
+  signal?: AbortSignal;
+  /** Optional project context for audience/project-scoped tokens. */
+  projectId?: string;
+  /** Saved server policy id (server-authoritative routing). */
+  savedPolicyId?: string;
+  /** Owned private endpoint id (stable model target), if selected. */
+  privateEndpointId?: string;
+  /** Client/release metadata attached as headers. */
+  meta: CapixClientMeta;
+  /** Max output tokens, if the engine set one. */
+  maxTokens?: number;
+  /** Sampling temperature, if the engine set one. */
+  temperature?: number;
+}
+
+/**
+ * Chunk the engine consumes. These map directly onto OpenCode Part types
+ * (TextPart / ReasoningPart / ToolPart / step-finish) and the Capix receipt
+ * event stream. The provider never invents its own message protocol.
+ */
+export type CapixProviderChunk =
+  | { type: 'route'; receiptId: string; model: string; region: string; privacyClass: string }
+  | { type: 'text'; delta: string }
+  | { type: 'reasoning'; delta: string }
+  | {
+      type: 'tool';
+      toolCallId: string;
+      index: number;
+      function?: { name?: string; arguments?: string };
+    }
+  | {
+      type: 'usage';
+      input: number;
+      output: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      cost?: { amount: string; asset: string; scale: number };
+    }
+  | {
+      type: 'finish';
+      finishReason: CapixFinalEvent['finishReason'];
+      receiptId: string;
+      retryCount?: number;
+    }
+  | {
+      type: 'error';
+      capixCode: string;
+      message: string;
+      supportId?: string;
+      retryClass?: 'none' | 'retry' | 'retry-after';
+      retryAfterMs?: number;
+    };
+
+/**
+ * Capix stream input. The engine fills this from the active session's message
+ * list; the provider does not inspect or classify message contents.
+ */
+export interface CapixStreamInput {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  tools?: unknown[];
+}
+
+/** A Capix catalog model as returned by GET /v1/models (stable server IDs). */
+export interface CapixCatalogModel {
+  id: string;
+  name: string;
+  capabilities: {
+    toolCall: boolean;
+    reasoning: boolean;
+    attachment: boolean;
+    modalities: { input: string[]; output: string[] };
+  };
+  contextWindow: number;
+  maxOutput: number;
+  pricing: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+  status: 'alpha' | 'beta' | 'active' | 'deprecated';
+  privacyClass?: string;
+  regions?: string[];
+}
+
+/** Classified HTTP error with a Capix code and retry semantics. */
+export class CapixHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly capixCode: string,
+    message: string,
+    readonly supportId?: string,
+    readonly retryClass: 'none' | 'retry' | 'retry-after' = 'none',
+    readonly retryAfterMs?: number,
+    readonly body?: InferenceErrorResponse
+  ) {
+    super(message);
+    this.name = 'CapixHttpError';
+  }
+}
+
+/** Lazily-injected broker. The launcher wires the real broker; tests inject a stub. */
+let brokerAccessor: (() => CredentialBroker) | null = null;
+
+export function setBrokerAccessor(accessor: () => CredentialBroker): void {
+  brokerAccessor = accessor;
+}
+
+function broker(): CredentialBroker {
+  if (!brokerAccessor) {
+    throw new Error('capix-provider: CredentialBroker accessor not registered');
+  }
+  return brokerAccessor();
+}
+
+/** Resolve the inference base URL from config (never from a stored secret). */
+let inferenceBaseResolver: () => string = () => CAPIX_INFERENCE_BASE;
+
+export function setInferenceBaseResolver(resolver: () => string): void {
+  inferenceBaseResolver = resolver;
+}
+
+function inferenceBase(): string {
+  return inferenceBaseResolver().replace(/\/$/, '');
+}
+
+function apiBase(): string {
+  return CAPIX_API_BASE.replace(/\/$/, '');
+}
+
+/** Attach client/release metadata as headers (no secrets). */
+function metaHeaders(meta: CapixClientMeta, requestId: string): Record<string, string> {
+  return {
+    'X-Capix-Client': meta.client,
+    'X-Capix-Client-Version': meta.clientVersion,
+    'X-Capix-Release-Id': meta.releaseId,
+    'X-Capix-Plugin-Version': meta.pluginVersion,
+    'X-Capix-Acp-Version': meta.acpVersion,
+    'X-Capix-Request-Id': requestId,
+    'X-Capix-Source': 'capix-code',
+  };
+}
+
+/** Generate a cryptographically random request id. */
+function newRequestId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Classify a non-2xx HTTP response into a typed CapixHttpError. */
+async function classifyHttpError(res: Response): Promise<never> {
+  const status = res.status;
+  let body: InferenceErrorResponse | undefined;
+  try {
+    body = (await res.json()) as InferenceErrorResponse;
+  } catch {
+    body = undefined;
+  }
+  const capixCode = body?.capixCode ?? `HTTP_${status}`;
+  const message = body?.message ?? res.statusText ?? 'inference request failed';
+  const supportId = body?.supportId;
+  const retryAfter = res.headers.get('retry-after');
+
+  switch (status) {
+    case 401:
+      // Auth — caller refreshes once before retrying.
+      throw new CapixHttpError(status, capixCode, message, supportId, 'retry');
+    case 402:
+      // Funds — surface top-up UI; not retryable in-band.
+      throw new CapixHttpError(status, capixCode, message, supportId, 'none');
+    case 409:
+      // Duplicate / in-flight — do not retry.
+      throw new CapixHttpError(status, capixCode, message, supportId, 'none');
+    case 429: {
+      const retryAfterMs = retryAfter ? Math.max(0, parseFloat(retryAfter) * 1000) : undefined;
+      throw new CapixHttpError(status, capixCode, message, supportId, 'retry-after', retryAfterMs);
+    }
+    default:
+      if (status >= 500) {
+        throw new CapixHttpError(status, capixCode, message, supportId, 'retry');
+      }
+      throw new CapixHttpError(status, capixCode, message, supportId, 'none');
+  }
+}
+
+/** Parse a single SSE line into a typed InferenceStreamChunk. */
+function parseSseChunk(data: string): InferenceStreamChunk | null {
+  if (!data || data.startsWith(':')) return null;
+  try {
+    return JSON.parse(data) as InferenceStreamChunk;
+  } catch {
+    logger.warn('capix-provider: unparseable SSE data', { data });
+    return null;
+  }
+}
+
+/** Map a contract chunk onto the provider chunk shape the engine consumes. */
+function mapChunk(chunk: InferenceStreamChunk): CapixProviderChunk {
+  switch (chunk.type) {
+    case 'capix.route': {
+      const r = chunk as CapixRouteEvent;
+      return {
+        type: 'route',
+        receiptId: r.receiptId,
+        model: r.modelCapability,
+        region: r.region,
+        privacyClass: r.privacyClass,
+      };
+    }
+    case 'content.delta': {
+      const c = chunk as ContentDeltaEvent;
+      return { type: 'text', delta: c.content };
+    }
+    case 'tool.delta': {
+      const t = chunk as ToolDeltaEvent;
+      return {
+        type: 'tool',
+        toolCallId: t.toolCallId,
+        index: t.index,
+        function: t.function,
+      };
+    }
+    case 'capix.usage': {
+      const u = chunk as CapixUsageEvent;
+      return {
+        type: 'usage',
+        input: u.inputUnits,
+        output: u.outputUnits,
+        cacheRead: u.cacheUnits,
+        cost: u.provisionalCost,
+      };
+    }
+    case 'capix.final': {
+      const f = chunk as CapixFinalEvent;
+      return {
+        type: 'finish',
+        finishReason: f.finishReason,
+        receiptId: f.receiptId,
+        retryCount: f.retryCount,
+      };
+    }
+    case 'capix.error': {
+      const e = chunk as CapixErrorEvent;
+      return {
+        type: 'error',
+        capixCode: e.capixCode,
+        message: e.message,
+        supportId: e.supportId,
+        retryClass: e.retryClass,
+        retryAfterMs: e.retryAfterMs,
+      };
+    }
+    default: {
+      const exhaustive: never = chunk;
+      throw new Error(
+        `capix-provider: unhandled stream event ${(exhaustive as { type: string }).type}`
+      );
+    }
+  }
+}
+
+/**
+ * Stream a chat completion from the Capix inference gateway via the local
+ * broker. Yields typed chunks until finish or error. Honors AbortSignal at
+ * every boundary. Refreshes exactly once on 401 before first output; falls
+ * back only before first customer-visible output.
+ */
+export async function* stream(
+  input: CapixStreamInput,
+  options: CapixStreamOptions
+): AsyncGenerator<CapixProviderChunk, void, void> {
+  const requestId = newRequestId();
+  const url = `${inferenceBase()}/v1/inference/chat/completions`;
+  const requestBody: InferenceRequest = {
+    model: input.model,
+    messages: input.messages,
+    stream: true,
+    maxTokens: options.maxTokens,
+    temperature: options.temperature,
+    tools: input.tools,
+    projectId: options.projectId,
+    savedPolicyId: options.savedPolicyId,
+    privateEndpointId: options.privateEndpointId,
+  };
+
+  let refreshed = false;
+  let firstOutputSeen = false;
+
+  const doRequest = async (token: string): Promise<Response> => {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        Authorization: `Bearer ${token}`,
+        ...metaHeaders(options.meta, requestId),
+      },
+      body: JSON.stringify(requestBody),
+      signal: options.signal,
+    });
+    if (!res.ok && res.status === 401 && !refreshed) {
+      refreshed = true;
+      await broker().refreshToken();
+      const fresh = await broker().getAccessToken({ projectId: options.projectId });
+      return doRequest(fresh.token);
+    }
+    if (!res.ok) {
+      await classifyHttpError(res);
+    }
+    return res;
+  };
+
+  const access = await broker().getAccessToken({ projectId: options.projectId });
+  const res = await doRequest(access.token);
+  if (!res.body) {
+    throw new CapixHttpError(0, 'NO_STREAM_BODY', 'inference response had no body');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      if (options.signal?.aborted) {
+        throw new CapixHttpError(0, 'ABORTED', 'request aborted by caller', undefined, 'none');
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let nlIndex: number;
+      while ((nlIndex = buffer.indexOf('\n')) !== -1) {
+        const rawLine = buffer.slice(0, nlIndex);
+        buffer = buffer.slice(nlIndex + 1);
+        const line = rawLine.replace(/\r$/, '');
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (data === '[DONE]') return;
+        const chunk = parseSseChunk(data);
+        if (!chunk) continue;
+        const mapped = mapChunk(chunk);
+        if (mapped.type === 'text' || mapped.type === 'tool' || mapped.type === 'reasoning') {
+          firstOutputSeen = true;
+        }
+        yield mapped;
+        if (mapped.type === 'finish' || mapped.type === 'error') return;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+    if (options.signal?.aborted) {
+      logger.info('capix-provider: stream aborted', { requestId, firstOutputSeen });
+    }
+  }
+}
+
+/** Fetch the model catalog from GET /v1/models (stable server IDs). */
+export async function models(): Promise<Record<string, Model>> {
+  const access = await broker().getAccessToken();
+  const res = await fetch(`${apiBase()}/v1/models`, {
+    headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    await classifyHttpError(res);
+  }
+  const catalog = (await res.json()) as { models: CapixCatalogModel[] };
+  const out: Record<string, Model> = {};
+  for (const m of catalog.models) {
+    out[m.id] = toSdkModel(m, 'capix');
+  }
+  // `capix/auto` is always advertised and delegates model selection to the server.
+  if (!out['auto']) {
+    out['auto'] = toSdkAutoModel();
+  }
+  return out;
+}
+
+/** Return the raw catalog list for display (TUI model picker). */
+export async function list(): Promise<CapixCatalogModel[]> {
+  const access = await broker().getAccessToken();
+  const res = await fetch(`${apiBase()}/v1/models`, {
+    headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    await classifyHttpError(res);
+  }
+  const body = (await res.json()) as { models: CapixCatalogModel[] };
+  return body.models;
+}
+
+/** Convert a catalog model into the OpenCode SDK Model shape. */
+function toSdkModel(m: CapixCatalogModel, providerID: string): Model {
+  return {
+    id: m.id,
+    providerID,
+    api: {
+      id: m.id,
+      url: `${inferenceBase()}/v1/inference`,
+      npm: '@capix/runtime-provider',
+    },
+    name: m.name,
+    capabilities: {
+      temperature: true,
+      reasoning: m.capabilities.reasoning,
+      attachment: m.capabilities.attachment,
+      toolcall: m.capabilities.toolCall,
+      input: {
+        text: true,
+        audio: m.capabilities.modalities.input.includes('audio'),
+        image: m.capabilities.modalities.input.includes('image'),
+        video: m.capabilities.modalities.input.includes('video'),
+        pdf: m.capabilities.modalities.input.includes('pdf'),
+      },
+      output: {
+        text: true,
+        audio: m.capabilities.modalities.output.includes('audio'),
+        image: m.capabilities.modalities.output.includes('image'),
+        video: m.capabilities.modalities.output.includes('video'),
+        pdf: m.capabilities.modalities.output.includes('pdf'),
+      },
+      interleaved: false,
+    },
+    cost: {
+      input: m.pricing.input,
+      output: m.pricing.output,
+      cache: {
+        read: m.pricing.cacheRead ?? 0,
+        write: m.pricing.cacheWrite ?? 0,
+      },
+    },
+    limit: {
+      context: m.contextWindow,
+      output: m.maxOutput,
+    },
+    status: m.status,
+    options: {},
+    headers: {},
+    release_date: new Date(0).toISOString(),
+  };
+}
+
+/** `capix/auto` — server selects the model; client keeps no placement memory. */
+function toSdkAutoModel(): Model {
+  return {
+    id: 'auto',
+    providerID: 'capix',
+    api: {
+      id: 'auto',
+      url: `${inferenceBase()}/v1/inference`,
+      npm: '@capix/runtime-provider',
+    },
+    name: 'Capix Auto (server-authoritative routing)',
+    capabilities: {
+      temperature: true,
+      reasoning: true,
+      attachment: true,
+      toolcall: true,
+      input: { text: true, audio: false, image: true, video: false, pdf: true },
+      output: { text: true, audio: false, image: false, video: false, pdf: false },
+      interleaved: false,
+    },
+    cost: { input: 0, output: 0, cache: { read: 0, write: 0 } },
+    limit: { context: 128000, output: 64000 },
+    status: 'active',
+    options: {},
+    headers: {},
+    release_date: new Date(0).toISOString(),
+  };
+}
+
+/**
+ * Build an OpenCode ProviderHook for the `capix` provider id. The hook is what
+ * plugin.ts registers on `Hooks.provider`. The engine calls `models()` to
+ * enumerate the catalog; streaming is served by the `stream` generator above
+ * through the native provider adapter.
+ */
+export function createCapixProviderHook(): ProviderHook {
+  return {
+    id: 'capix',
+    models: async (
+      _provider: Provider,
+      _ctx: ProviderHookContext
+    ): Promise<Record<string, Model>> => {
+      return models();
+    },
+  };
+}
+
+/** Auth loader: bridge the hook's OAuth flow to the credential broker. */
+export async function capixAuthLoader(
+  auth: () => Promise<Auth>,
+  _provider: Provider
+): Promise<Record<string, unknown>> {
+  const a = await auth();
+  if (a.type === 'oauth') {
+    return { Authorization: `Bearer ${a.access}`, 'X-Capix-Account': a.accountId ?? '' };
+  }
+  if (a.type === 'api') {
+    return { Authorization: `Bearer ${a.key}` };
+  }
+  return {};
+}
+
+/** Convenience wrapper for environments that want the legacy object shape. */
+export const capixProvider = {
+  name: 'capix',
+  models,
+  stream,
+  list,
+  createHook: createCapixProviderHook,
+  authLoader: capixAuthLoader,
+};
+
+export type { ProviderHook, ProviderHookContext };

@@ -1,0 +1,23 @@
+{
+  "rustc": 776363091828236830,
+  "features": "[]",
+  "declared_features": "[\"compiler_builtins\", \"core\", \"custom\", \"js\", \"js-sys\", \"linux_disable_fallback\", \"rdrand\", \"rustc-dep-of-std\", \"std\", \"test-in-browser\", \"wasm-bindgen\"]",
+  "target": 16244099637825074703,
+  "profile": 8276155916380437441,
+  "path": 5372974496464614315,
+  "deps": [
+    [7098700569944897890, "libc", false, 9218207891551790181],
+    [7667230146095136825, "cfg_if", false, 11399281335694807512]
+  ],
+  "local": [
+    {
+      "CheckDepInfo": {
+        "dep_info": "debug/.fingerprint/getrandom-c10af90f9db3904d/dep-lib-getrandom",
+        "checksum": false
+      }
+    }
+  ],
+  "rustflags": [],
+  "config": 8247474407144887393,
+  "compile_kind": 0
+}

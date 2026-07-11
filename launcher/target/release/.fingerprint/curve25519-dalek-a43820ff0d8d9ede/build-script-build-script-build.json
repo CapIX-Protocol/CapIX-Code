@@ -1,0 +1,20 @@
+{
+  "rustc": 776363091828236830,
+  "features": "[\"alloc\", \"digest\", \"precomputed-tables\", \"zeroize\"]",
+  "declared_features": "[\"alloc\", \"default\", \"digest\", \"ff\", \"group\", \"group-bits\", \"legacy_compatibility\", \"precomputed-tables\", \"rand_core\", \"serde\", \"zeroize\"]",
+  "target": 5408242616063297496,
+  "profile": 1369601567987815722,
+  "path": 7725625539047197540,
+  "deps": [[8576480473721236041, "rustc_version", false, 4236253109838530850]],
+  "local": [
+    {
+      "CheckDepInfo": {
+        "dep_info": "release/.fingerprint/curve25519-dalek-a43820ff0d8d9ede/dep-build-script-build-script-build",
+        "checksum": false
+      }
+    }
+  ],
+  "rustflags": [],
+  "config": 8247474407144887393,
+  "compile_kind": 0
+}

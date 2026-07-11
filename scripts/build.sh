@@ -3,7 +3,11 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CAPIX_CODE_DIR="${CAPIX_CODE_DIR:-$DIR/opencode}"
+CAPIX_CODE_DIR="${CAPIX_CODE_DIR:-$DIR/upstream}"
+BUN="${BUN_BIN:-$(command -v bun || true)}"
+if [ -z "$BUN" ] && [ -x "$DIR/node_modules/.bin/bun" ]; then BUN="$DIR/node_modules/.bin/bun"; fi
+[ -n "$BUN" ] || { echo "✗ Bun 1.3.14 is required"; exit 1; }
+[ "$($BUN --version)" = "1.3.14" ] || { echo "✗ Expected Bun 1.3.14"; exit 1; }
 
 if [ ! -d "$CAPIX_CODE_DIR" ]; then
   echo "✗ No $CAPIX_CODE_DIR. Run ./scripts/bootstrap.sh first."
@@ -13,22 +17,22 @@ fi
 cd "$CAPIX_CODE_DIR"
 
 echo "▸ Building capix-code standalone binary…"
-bun install
+"$BUN" install
 
 # Write default config if the init script exists.
-if [ -f "packages/opencode/scripts/init-capix-config.ts" ]; then
-  bun run packages/opencode/scripts/init-capix-config.ts 2>/dev/null || true
+if [ -f "packages/capix-code/scripts/init-capix-config.ts" ]; then
+  "$BUN" run packages/capix-code/scripts/init-capix-config.ts 2>/dev/null || true
 fi
 
 # Build using the upstream build script.
-if [ -f "packages/opencode/script/build.ts" ]; then
-  bun run --cwd packages/opencode script/build.ts --single
+if [ -f "packages/capix-code/script/build.ts" ]; then
+  "$BUN" run --cwd packages/capix-code script/build.ts --single
 fi
 
 # Find the output — handle both renamed and original patterns.
-OUTPUT=$(find packages/opencode/dist -name "capix-code" -type f 2>/dev/null | head -1)
+OUTPUT=$(find packages/capix-code/dist -name "capix-code" -type f 2>/dev/null | head -1)
 if [ -z "$OUTPUT" ]; then
-  OUTPUT=$(find packages/opencode/dist -name "opencode" -type f 2>/dev/null | head -1)
+  OUTPUT=$(find packages/capix-code/dist -name "opencode" -type f 2>/dev/null | head -1)
   if [ -n "$OUTPUT" ]; then
     NEW_OUTPUT="$(dirname "$OUTPUT")/capix-code"
     mv "$OUTPUT" "$NEW_OUTPUT"
@@ -37,7 +41,22 @@ if [ -z "$OUTPUT" ]; then
 fi
 
 if [ -n "$OUTPUT" ]; then
-  echo "✓ Build complete: $OUTPUT"
+  ARTIFACT="$DIR/dist/customer"
+  rm -rf "$ARTIFACT"
+  mkdir -p "$ARTIFACT/bin" "$ARTIFACT/engine" "$ARTIFACT/runtime/packages" "$ARTIFACT/config"
+  cp "$OUTPUT" "$ARTIFACT/engine/capix-engine"
+  cp -R "$DIR/src" "$ARTIFACT/runtime/src"
+  cp -R "$DIR/packages/runtime-provider" "$ARTIFACT/runtime/packages/runtime-provider"
+  cp "$DIR/package.json" "$DIR/package-lock.json" "$ARTIFACT/runtime/"
+  cp "$DIR/config/capix-defaults.json" "$ARTIFACT/config/"
+  chmod 0755 "$ARTIFACT/engine/capix-engine"
+  (cd "$ARTIFACT/runtime" && npm ci --omit=dev --ignore-scripts)
+  (cd "$DIR/launcher" && cargo build --locked --release)
+  cp "$DIR/launcher/target/release/capix-code" "$ARTIFACT/bin/capix-code"
+  chmod 0755 "$ARTIFACT/bin/capix-code"
+  "$DIR/scripts/assert-artifact.sh" "$ARTIFACT"
+  "$DIR/scripts/assert-customer-brand.sh" "$ARTIFACT"
+  echo "✓ Customer artifact staged: $ARTIFACT"
 else
   echo "✗ No binary found in dist/ — build may have failed."
   exit 1

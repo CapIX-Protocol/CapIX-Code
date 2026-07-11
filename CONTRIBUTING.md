@@ -24,7 +24,7 @@ Thank you for your interest in contributing to Capix Code! This document covers 
 git clone https://github.com/CapIX-Protocol/Capix-Code.git
 cd capix-code
 npm install          # dev tooling (tsc, eslint, prettier, vitest, husky)
-./scripts/bootstrap.sh   # clones upstream opencode source
+./scripts/bootstrap.sh   # clones the upstream source
 ./scripts/dev.sh         # launches capix-code in dev mode
 ```
 
@@ -74,24 +74,24 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/). Each com
 
 ### Types
 
-| Type | Use for |
-|------|--------|
-| `fix` | Bug fixes |
-| `feat` | New features |
-| `docs` | Documentation only |
-| `style` | Formatting, no code change |
+| Type       | Use for                                |
+| ---------- | -------------------------------------- |
+| `fix`      | Bug fixes                              |
+| `feat`     | New features                           |
+| `docs`     | Documentation only                     |
+| `style`    | Formatting, no code change             |
 | `refactor` | Code restructuring, no behavior change |
-| `test` | Adding or fixing tests |
-| `chore` | Build, deps, tooling, CI |
-| `ci` | CI/CD changes |
-| `perf` | Performance improvements |
+| `test`     | Adding or fixing tests                 |
+| `chore`    | Build, deps, tooling, CI               |
+| `ci`       | CI/CD changes                          |
+| `perf`     | Performance improvements               |
 
 ### Examples
 
 ```
 feat(router): add loop mode auto-deploy handling
 fix(plugin): correctly re-export RouteResult type
-docs(README): clarify this is a brand kit on opencode
+docs(README): clarify this is an AI coding agent
 chore(deps): bump vitest to 2.1.0
 ```
 

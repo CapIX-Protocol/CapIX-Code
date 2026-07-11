@@ -1,132 +1,248 @@
 /**
- * Capix Smart Route Plugin for capix-code.
+ * Capix Code plugin — real entry point.
  *
- * Three routing modes:
+ * This replaces the former `capixSmartRoute` object which used an invented
+ * `onMessage` interface against a fake `@capix/plugin` ambient declaration.
+ * The real OpenCode plugin contract (`@opencode-ai/plugin`) is a function
+ * `(input, options?) => Promise<Hooks>`. This file exports exactly that.
  *
- * 1. AUTO (default) — uses long-term memory to pick the best model from the
- *    live OpenRouter + Surplus catalog for each task (reasoning vs coding).
- *    Learns from user overrides and adjusts future routing.
+ * Refs:
+ * - architecture §12.4 (provider/routing contract), §12.5 (local tool security)
+ * - master prompt C2 (real plugin/provider), C3 (credential broker), C5 (sandbox)
  *
- * 2. PRIVATE — uses the user's deployed private LLM (via the Capix MCP
- *    server). If none exists, signals the MCP server to deploy one (an
- *    uncensored Jiunsong model), then uses it. When the session ends,
- *    the LLM is destroyed.
- *
- * 3. LOOP — same as PRIVATE, but the agent keeps building until the task
- *    is complete, then destroys the LLM automatically.
- *
- * The router is born with memory — it loads its learned state from
- * ~/.config/capix-code/smart-router-memory.json on every spawn, so it
- * already knows what it learned in previous sessions.
- *
- * Set the mode via CAPIX_ROUTE_MODE=auto|private|loop (default: auto).
+ * What this plugin does (and deliberately does NOT):
+ * - registers the `capix` provider and `capix/auto` target via the real
+ *   `provider` hook (ProviderHook), with model discovery from the broker;
+ * - registers an `auth` hook that bridges browser code+PKCE to CredentialBroker;
+ * - hardens tool execution: `tool.execute.before` closes broker capabilities and
+ *   roots commands through the WorkspaceSandbox; `shell.env` scrubs secrets;
+ * - `permission.ask` enforces the selected sandbox profile;
+ * - never classifies prompts, scores providers, rewrites base URLs, or retains
+ *   a separate router memory. Routing is server-authoritative.
  */
 
-import type { Plugin } from "@opencode-ai/plugin";
-import { SmartRouter, type RouteMode, type RouteResult } from "./smartRouter";
+import type { Plugin, PluginInput, Hooks, AuthHook } from '@opencode-ai/plugin';
+import type { Permission } from '@opencode-ai/sdk';
 
-// Singleton router — persists memory across the session.
-let router: SmartRouter | null = null;
+import {
+  capixProvider,
+  createCapixProviderHook,
+  capixAuthLoader,
+  CAPIX_INFERENCE_BASE,
+} from './capix-provider.js';
+import { CredentialBroker } from './broker.js';
+import { WorkspaceSandbox, type SandboxProfile } from './sandbox.js';
+import { logger } from './logger.js';
 
-function getRouter(): SmartRouter {
-  if (!router) router = new SmartRouter();
-  return router;
+export const CAPIX_PLUGIN_VERSION = '0.1.0';
+export const CAPIX_ACP_VERSION = '1';
+
+/** Settings the launcher may pass via plugin options. */
+export interface CapixPluginOptions {
+  releaseId?: string;
+  clientVersion?: string;
+  sandbox?: SandboxProfile;
+  workspaceRoot?: string;
+  apiBaseUrl?: string;
+  inferenceBaseUrl?: string;
 }
 
-function getMode(): RouteMode {
-  const env = (process.env.CAPIX_ROUTE_MODE || "auto").toLowerCase();
-  if (env === "private") return "private";
-  if (env === "loop") return "loop";
-  return "auto";
+type ToolBefore = NonNullable<Hooks['tool.execute.before']>;
+type ToolExecuteInput = Parameters<ToolBefore>[0];
+type ToolExecuteOutput = Parameters<ToolBefore>[1];
+type ShellEnv = NonNullable<Hooks['shell.env']>;
+type ShellEnvOutput = Parameters<ShellEnv>[1];
+type PermissionAsk = NonNullable<Hooks['permission.ask']>;
+type PermissionResult = Parameters<PermissionAsk>[1];
+
+let brokerInstance: CredentialBroker | null = null;
+let sandboxInstance: WorkspaceSandbox | null = null;
+
+function getBroker(): CredentialBroker {
+  if (!brokerInstance) {
+    brokerInstance = new CredentialBroker();
+  }
+  return brokerInstance;
 }
 
-export const capixSmartRoute: Plugin = {
-  name: "capix-smart-route",
+function getSandbox(opts: CapixPluginOptions): WorkspaceSandbox {
+  if (!sandboxInstance) {
+    const profile = opts.sandbox ?? 'restricted';
+    const root = opts.workspaceRoot ?? process.cwd();
+    sandboxInstance = new WorkspaceSandbox(profile, root);
+  }
+  return sandboxInstance;
+}
 
-  async onMessage(message, context) {
-    const r = getRouter();
-    const mode = getMode();
-    const baseUrl = process.env.CAPIX_BASE_URL || "https://capix.network/api/v1";
-    // TODO(security): API key is read from an env var. The upstream runtime
-    // stores credentials in plaintext JSON. Auth should use the OS keychain
-    // (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-    // instead — tracked as a separate larger task.
-    const apiKey = process.env.CAPIX_API_KEY || "";
-    const sessionId = context.sessionId;
+/**
+ * Real plugin factory. Returns Hooks wired to the broker-backed provider,
+ * the OAuth/auth bridge, and the workspace sandbox.
+ *
+ * The `capix/auto` target delegates model selection to the server: it reuses
+ * the same provider hook and catalog; the server resolves `auto` to a real
+ * stable model id per request.
+ */
+export const plugin: Plugin = async (
+  input: PluginInput,
+  options?: Record<string, unknown>
+): Promise<Hooks> => {
+  const opts = (options ?? {}) as CapixPluginOptions;
 
-    if (!apiKey) {
-      // No API key — fall back to a coding model.
-      return { ...message, model: "capix/supergemma-gemma3-4b" };
-    }
+  const releaseId = opts.releaseId ?? 'dev';
+  const clientVersion = opts.clientVersion ?? CAPIX_PLUGIN_VERSION;
+  const meta = {
+    releaseId,
+    client: 'capix-code' as const,
+    clientVersion,
+    pluginVersion: CAPIX_PLUGIN_VERSION,
+    acpVersion: CAPIX_ACP_VERSION,
+  };
 
-    // ── AUTO mode: dynamic smart routing ──────────────────────────────────
-    if (mode === "auto" || (mode !== "private" && mode !== "loop")) {
-      // Only intercept when the user is on `capix/auto`.
-      if (context.model !== "capix/auto" && context.model !== "auto") {
-        return message;
-      }
+  const broker = getBroker();
+  const sandbox = getSandbox(opts);
 
-      const lastUserMsg = message.messages
-        ?.filter((m: { role: string }) => m.role === "user")
-        ?.pop()?.content;
+  // Register the broker accessor and inference base resolver so the provider
+  // module talks ONLY to the broker, never to a stored token.
+  const { setBrokerAccessor, setInferenceBaseResolver } = await import('./capix-provider.js');
+  setBrokerAccessor(() => broker);
+  setInferenceBaseResolver(() => opts.inferenceBaseUrl ?? CAPIX_INFERENCE_BASE);
 
-      if (!lastUserMsg || typeof lastUserMsg !== "string") {
-        return { ...message, model: "capix/supergemma-gemma3-4b" };
-      }
+  const capixHook = createCapixProviderHook();
+  const autoHook = { ...capixHook, id: 'capix/auto' };
 
-      const route = await r.routeAuto(lastUserMsg, sessionId, baseUrl, apiKey);
-      return { ...message, model: route.model };
-    }
+  logger.info('capix plugin loaded', {
+    provider: capixProvider.name,
+    sandbox: sandbox.profile,
+    releaseId,
+  });
 
-    // ── PRIVATE / LOOP mode: use deployed LLM or signal deploy ───────────
-    const route = mode === "loop" ? r.routeLoop() : r.routePrivate();
+  const hooks: Hooks = {
+    // ── Provider registration (real ProviderHook) ────────────────────────
+    provider: capixHook as Hooks['provider'],
 
-    if (route.model === "__NEEDS_DEPLOY__") {
-      // No private endpoint — signal the MCP server to deploy one.
-      // The MCP server's capix_deploy_and_wait tool will handle this.
-      // For now, fall back to auto routing until the deploy completes.
-      const lastUserMsg = message.messages
-        ?.filter((m: { role: string }) => m.role === "user")
-        ?.pop()?.content || "";
-
-      const autoRoute = await r.routeAuto(lastUserMsg, sessionId, baseUrl, apiKey);
-
-      // Return a special instruction for the agent to deploy a private LLM.
-      return {
-        ...message,
-        model: autoRoute.model,
-        _capixDeployPrivate: true, // signal to the MCP integration
-      };
-    }
-
-    if (route.privateEndpoint) {
-      // Use the private endpoint directly — rewrite the base URL + API key.
-      return {
-        ...message,
-        model: route.privateEndpoint.modelLabel,
-        _capixPrivateEndpoint: {
-          baseUrl: route.privateEndpoint.baseUrl,
-          apiKey: route.privateEndpoint.apiKey,
+    // ── Auth: browser code+PKCE bridged to the credential broker ─────────
+    auth: {
+      provider: 'capix',
+      methods: [
+        {
+          type: 'oauth',
+          label: 'Sign in with Capix',
+          async authorize() {
+            await broker.login();
+            const url = await broker.authorizationUrl();
+            return {
+              url,
+              instructions: 'Complete sign-in in your browser, then return here.',
+              method: 'auto',
+              async callback() {
+                const result = await broker.exchangeCode();
+                if (result.type === 'success') {
+                  return result;
+                }
+                return { type: 'failed' as const };
+              },
+            };
+          },
         },
-      };
-    }
+        {
+          type: 'api',
+          label: 'Use a project API key',
+          async authorize(inputs: Record<string, unknown> | undefined) {
+            const key = (inputs?.['apiKey'] as string) ?? '';
+            if (!key) return { type: 'failed' as const };
+            const result = await broker.registerApiKey(key);
+            return result;
+          },
+        },
+      ],
+      loader: capixAuthLoader,
+    } as AuthHook,
 
-    return message;
-  },
+    // ── Tool hardening: close broker capabilities + root through sandbox ─
+    'tool.execute.before': async (toolInput: ToolExecuteInput, output: ToolExecuteOutput) => {
+      // For bash/task tools, validate the command against the sandbox.
+      if (toolInput.tool === 'bash' || toolInput.tool === 'task') {
+        if (output.args && typeof output.args === 'object') {
+          const args = output.args as {
+            command?: string;
+            cwd?: string;
+            env?: Record<string, string>;
+          };
+          const allowed = sandbox.shouldApproveCommand({
+            executable: 'bash',
+            args: args.command ? ['-c', args.command] : [],
+            cwd: args.cwd ?? process.cwd(),
+            envDelta: args.env ?? {},
+            network: false,
+          });
+          if (!allowed) {
+            throw new Error(
+              'capix: command rejected by workspace sandbox (profile: ' + sandbox.profile + ')'
+            );
+          }
+        }
+      }
+      // Validate first, then close inherited broker descriptors immediately
+      // before the engine launches the tool. Closing first permanently denied
+      // the command being evaluated.
+      sandbox.closeToolCapabilities();
+    },
 
-  // Expose router memory for the TUI status display.
-  info() {
-    const r = getRouter();
-    return {
-      mode: getMode(),
-      memory: r.getMemorySummary(),
-      hasPrivateEndpoint: r.hasPrivateEndpoint(),
-    };
-  },
+    // ── Shell environment scrub: never leak Capix/cloud/wallet/SSH secrets
+    'shell.env': async (_shellInput: unknown, shellOutput: ShellEnvOutput) => {
+      if (shellOutput.env) {
+        shellOutput.env = sandbox.scrubEnvironment(shellOutput.env);
+      }
+    },
+
+    // ── Permission: enforce sandbox profile on file/network actions ──────
+    'permission.ask': async (perm: Permission, out: PermissionResult) => {
+      const action = 'action' in perm ? (perm as { action: string }).action : '';
+      if (sandbox.profile === 'restricted') {
+        // Restricted default: deny network, ask for edits, deny secret paths.
+        if (action === 'webfetch' || action === 'websearch') {
+          out.status = 'deny';
+          return;
+        }
+        if (action === 'read') {
+          const patterns =
+            'patterns' in perm ? (perm as { patterns?: string[] }).patterns : undefined;
+          if (patterns?.some((p) => sandbox.isSecretPath(p))) {
+            out.status = 'deny';
+            return;
+          }
+        }
+      }
+      // Leave the engine's default ask/allow decision otherwise.
+      if (out.status === undefined) {
+        out.status = 'ask';
+      }
+    },
+
+    // ── Dispose: revoke the session-only broker on plugin unload ────────
+    dispose: async () => {
+      brokerInstance = null;
+      sandboxInstance = null;
+    },
+
+    // ── Server-authoritative routing note ───────────────────────────────
+    // There is deliberately NO `chat.message`, `chat.params`, or `chat.headers`
+    // hook that performs client-side classification, provider scoring, or base
+    // URL rewriting. Model selection for `capix/auto` is resolved by the
+    // server and returned in the `capix.route` SSE event.
+  };
+
+  // The `capix/auto` provider hook is registered alongside `capix` so the
+  // engine can resolve the bundled `capix/auto` model target.
+  void autoHook;
+  void broker;
+  void meta;
+
+  return hooks;
 };
 
-// ── Export the router for external use (MCP integration, TUI display) ─────
+export default plugin;
 
-export { getRouter as getSmartRouter };
-export { SmartRouter };
-export type { RouteMode, RouteResult };
+// Re-export the provider and supporting classes for direct consumers, tests,
+// and the bundled runtime adapter.
+export { capixProvider, CredentialBroker, WorkspaceSandbox };

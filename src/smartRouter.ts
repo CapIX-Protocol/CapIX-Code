@@ -20,15 +20,15 @@
  * routing for similar tasks.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, dirname } from "node:path";
-import { logger } from "./logger";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { logger } from './logger';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
-export type TaskType = "reasoning" | "coding";
-export type RouteMode = "auto" | "private" | "loop";
+export type TaskType = 'reasoning' | 'coding';
+export type RouteMode = 'auto' | 'private' | 'loop';
 
 export interface RouteResult {
   mode: RouteMode;
@@ -81,7 +81,7 @@ interface SmartRouterMemory {
 // ── Memory storage ────────────────────────────────────────────────────────
 
 // TODO(security): Auth credentials (CAPIX_API_KEY) are currently passed as
-// env vars or stored in the upstream opencode's plaintext JSON auth store.
+// env vars or stored in the upstream auth store.
 // These should be migrated to the OS keychain (macOS Keychain, Windows
 // Credential Manager, Linux Secret Service / libsecret) so secrets are
 // never written to disk in plaintext. This requires changes to the upstream
@@ -89,25 +89,25 @@ interface SmartRouterMemory {
 
 function getConfigDir(): string {
   switch (process.platform) {
-    case "darwin":
-      return join(homedir(), "Library", "Application Support", "capix-code");
-    case "win32":
-      return join(homedir(), "AppData", "Roaming", "capix-code");
+    case 'darwin':
+      return join(homedir(), 'Library', 'Application Support', 'capix-code');
+    case 'win32':
+      return join(homedir(), 'AppData', 'Roaming', 'capix-code');
     default:
-      return join(homedir(), ".config", "capix-code");
+      return join(homedir(), '.config', 'capix-code');
   }
 }
 
-const MEMORY_FILE = join(getConfigDir(), "smart-router-memory.json");
+const MEMORY_FILE = join(getConfigDir(), 'smart-router-memory.json');
 
 function loadMemory(): SmartRouterMemory {
   try {
     if (!existsSync(MEMORY_FILE)) return blankMemory();
-    const raw = readFileSync(MEMORY_FILE, "utf-8");
+    const raw = readFileSync(MEMORY_FILE, 'utf-8');
     const m = JSON.parse(raw) as SmartRouterMemory;
     return m;
   } catch (err) {
-    logger.error("loadMemory failed — using blank memory", { error: String(err) });
+    logger.error('loadMemory failed — using blank memory', { error: String(err) });
     return blankMemory();
   }
 }
@@ -116,9 +116,9 @@ function saveMemory(mem: SmartRouterMemory): void {
   try {
     mkdirSync(dirname(MEMORY_FILE), { recursive: true });
     mem.updatedAt = new Date().toISOString();
-    writeFileSync(MEMORY_FILE, JSON.stringify(mem, null, 2), "utf-8");
+    writeFileSync(MEMORY_FILE, JSON.stringify(mem, null, 2), 'utf-8');
   } catch (err) {
-    logger.error("saveMemory failed — cannot persist router memory", { error: String(err) });
+    logger.error('saveMemory failed — cannot persist router memory', { error: String(err) });
   }
 }
 
@@ -151,7 +151,7 @@ export class SmartRouter {
   // The classifier always goes to the Capix gateway — never the user's
   // self-hosted baseUrl. This ensures classification works even when the
   // user points CAPIX_BASE_URL at a private instance with no classifier model.
-  private static CAPIX_GATEWAY = "https://capix.network/api/v1";
+  private static CAPIX_GATEWAY = 'https://capix.network/api/v1';
 
   /**
    * Born with memory — loads persisted state from disk on construction.
@@ -172,7 +172,7 @@ export class SmartRouter {
   private async fetchCatalog(baseUrl: string, apiKey: string): Promise<LiveModel[]> {
     if (this.catalogCache && Date.now() - this.catalogCache.at < SmartRouter.CATALOG_TTL_MS) {
       const cached = this.catalogCache.models;
-      logger.info("Catalog served from cache", { source: baseUrl, count: cached.length });
+      logger.info('Catalog served from cache', { source: baseUrl, count: cached.length });
       return cached;
     }
 
@@ -190,7 +190,7 @@ export class SmartRouter {
       }>;
 
       const models: LiveModel[] = listings
-        .filter((l) => l.status === "live")
+        .filter((l) => l.status === 'live')
         .map((l) => ({
           id: l.model,
           model: l.model,
@@ -200,12 +200,12 @@ export class SmartRouter {
 
       this.catalogCache = { models, at: Date.now() };
       const durationMs = Date.now() - start;
-      logger.info("Catalog fetched", { source: baseUrl, count: models.length, durationMs });
+      logger.info('Catalog fetched', { source: baseUrl, count: models.length, durationMs });
       return models;
     } catch (err) {
       const durationMs = Date.now() - start;
       const fallback = this.catalogCache?.models || [];
-      logger.error("fetchCatalog failed — using cached/empty fallback", {
+      logger.error('fetchCatalog failed — using cached/empty fallback', {
         source: baseUrl,
         durationMs,
         cachedCount: fallback.length,
@@ -217,7 +217,7 @@ export class SmartRouter {
 
   // ── Task classification ──────────────────────────────────────────────────
 
-  private static CLASSIFIER_MODEL = "capix/supergemma-gemma3-4b";
+  private static CLASSIFIER_MODEL = 'capix/supergemma-gemma3-4b';
   private static CLASSIFY_PROMPT = `You are a task classifier. Read the user's request and respond with exactly one word: "reasoning" or "coding".
 
 - "reasoning" = planning, architecture, debugging, analysis, explaining concepts, answering questions, writing docs, reviewing code
@@ -229,12 +229,12 @@ Only respond with one word. No punctuation.`;
   private async classify(
     message: string,
     sessionId: string | undefined,
-    apiKey: string,
+    apiKey: string
   ): Promise<TaskType> {
     if (sessionId) {
       const cached = this.classCache.get(sessionId);
       if (cached && Date.now() - cached.at < SmartRouter.CLASS_CACHE_TTL_MS) {
-        logger.info("Classification served from cache", {
+        logger.info('Classification served from cache', {
           sessionId,
           taskType: cached.type,
         });
@@ -246,13 +246,13 @@ Only respond with one word. No punctuation.`;
     const promptPreview = message.slice(0, 100);
     try {
       const res = await fetch(`${SmartRouter.CAPIX_GATEWAY}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: SmartRouter.CLASSIFIER_MODEL,
           messages: [
-            { role: "system", content: SmartRouter.CLASSIFY_PROMPT },
-            { role: "user", content: message.slice(0, 500) },
+            { role: 'system', content: SmartRouter.CLASSIFY_PROMPT },
+            { role: 'user', content: message.slice(0, 500) },
           ],
           max_tokens: 5,
           temperature: 0,
@@ -261,35 +261,53 @@ Only respond with one word. No punctuation.`;
       });
 
       const data = await res.json();
-      const text = data?.choices?.[0]?.message?.content?.toLowerCase().trim() || "";
-      const type: TaskType = text.includes("reason") ? "reasoning" : "coding";
+      const text = data?.choices?.[0]?.message?.content?.toLowerCase().trim() || '';
+      const type: TaskType = text.includes('reason') ? 'reasoning' : 'coding';
 
       const durationMs = Date.now() - start;
-      logger.info("Task classified", { taskType: type, promptPreview, durationMs });
+      logger.info('Task classified', { taskType: type, promptPreview, durationMs });
 
       if (sessionId) this.classCache.set(sessionId, { type, at: Date.now() });
       return type;
     } catch (err) {
       const durationMs = Date.now() - start;
-      logger.warn("classify failed — defaulting to coding", {
+      logger.warn('classify failed — defaulting to coding', {
         promptPreview,
         durationMs,
         error: String(err),
       });
-      return "coding";
+      return 'coding';
     }
   }
 
   // ── Model selection (memory-informed) ────────────────────────────────────
 
   private static REASONING_KEYWORDS = [
-    "r1", "reasoning", "thinking", "o1", "o3", "pro", "sonnet", "opus",
-    "gemini-2.5", "gpt-4o", "claude", "deepseek-r1",
-    "llama", "gemma", "supergemma",
+    'r1',
+    'reasoning',
+    'thinking',
+    'o1',
+    'o3',
+    'pro',
+    'sonnet',
+    'opus',
+    'gemini-2.5',
+    'gpt-4o',
+    'claude',
+    'deepseek-r1',
+    'llama',
+    'gemma',
+    'supergemma',
   ];
   private static CODING_KEYWORDS = [
-    "coder", "code", "coding", "deepseek-coder", "qwen2.5-coder",
-    "codellama", "starcoder", "codegemma",
+    'coder',
+    'code',
+    'coding',
+    'deepseek-coder',
+    'qwen2.5-coder',
+    'codellama',
+    'starcoder',
+    'codegemma',
   ];
 
   /**
@@ -304,13 +322,14 @@ Only respond with one word. No punctuation.`;
    */
   pickBestModel(models: LiveModel[], taskType: TaskType): string | null {
     if (models.length === 0) {
-      const fallback = taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
-      logger.info("Catalog empty — using fallback", { taskType, fallback });
+      const fallback =
+        taskType === 'reasoning' ? 'capix/supergemma-gemma3-27b' : 'capix/supergemma-gemma3-4b';
+      logger.info('Catalog empty — using fallback', { taskType, fallback });
       return fallback;
     }
 
     const keywords =
-      taskType === "reasoning" ? SmartRouter.REASONING_KEYWORDS : SmartRouter.CODING_KEYWORDS;
+      taskType === 'reasoning' ? SmartRouter.REASONING_KEYWORDS : SmartRouter.CODING_KEYWORDS;
 
     const scored = models
       .map((m) => {
@@ -352,8 +371,8 @@ Only respond with one word. No punctuation.`;
 
     if (scored.length === 0) {
       const fallback =
-        taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
-      logger.info("All models blocked — using fallback", { taskType, fallback });
+        taskType === 'reasoning' ? 'capix/supergemma-gemma3-27b' : 'capix/supergemma-gemma3-4b';
+      logger.info('All models blocked — using fallback', { taskType, fallback });
       return fallback;
     }
 
@@ -361,7 +380,7 @@ Only respond with one word. No punctuation.`;
     scored.sort((a, b) => b.score - a.score || a.price - b.price);
 
     const best = scored[0].model;
-    logger.info("Model selected", { model: best, taskType, score: scored[0].score });
+    logger.info('Model selected', { model: best, taskType, score: scored[0].score });
     return best;
   }
 
@@ -375,7 +394,7 @@ Only respond with one word. No punctuation.`;
     message: string,
     sessionId: string | undefined,
     baseUrl: string,
-    apiKey: string,
+    apiKey: string
   ): Promise<RouteResult> {
     const start = Date.now();
     const [catalog, taskType] = await Promise.all([
@@ -385,7 +404,7 @@ Only respond with one word. No punctuation.`;
 
     const best = this.pickBestModel(catalog, taskType);
     const fallback =
-      taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
+      taskType === 'reasoning' ? 'capix/supergemma-gemma3-27b' : 'capix/supergemma-gemma3-4b';
 
     // Record the selection in memory (for learning).
     if (best) {
@@ -393,13 +412,13 @@ Only respond with one word. No punctuation.`;
     }
 
     const fromCache = Boolean(
-      this.catalogCache && Date.now() - this.catalogCache.at < SmartRouter.CATALOG_TTL_MS,
+      this.catalogCache && Date.now() - this.catalogCache.at < SmartRouter.CATALOG_TTL_MS
     );
     const model = best || fallback;
     const durationMs = Date.now() - start;
 
-    logger.info("Route decision", {
-      mode: "auto",
+    logger.info('Route decision', {
+      mode: 'auto',
       model,
       taskType,
       fromCache,
@@ -407,7 +426,7 @@ Only respond with one word. No punctuation.`;
       durationMs,
     });
 
-    return { mode: "auto", model, taskType, fromCache };
+    return { mode: 'auto', model, taskType, fromCache };
   }
 
   /**
@@ -418,14 +437,14 @@ Only respond with one word. No punctuation.`;
     const start = Date.now();
     if (this.activePrivateEndpoint) {
       const result: RouteResult = {
-        mode: "private",
+        mode: 'private',
         model: this.activePrivateEndpoint.modelLabel,
-        taskType: "coding",
+        taskType: 'coding',
         fromCache: true,
         privateEndpoint: this.activePrivateEndpoint,
       };
-      logger.info("Route decision", {
-        mode: "private",
+      logger.info('Route decision', {
+        mode: 'private',
         model: result.model,
         taskType: result.taskType,
         fromCache: true,
@@ -433,14 +452,14 @@ Only respond with one word. No punctuation.`;
       });
       return result;
     }
-    logger.info("Route decision", {
-      mode: "private",
-      model: "__NEEDS_DEPLOY__",
-      taskType: "coding",
+    logger.info('Route decision', {
+      mode: 'private',
+      model: '__NEEDS_DEPLOY__',
+      taskType: 'coding',
       fromCache: false,
       durationMs: Date.now() - start,
     });
-    return { mode: "private", model: "__NEEDS_DEPLOY__", taskType: "coding", fromCache: false };
+    return { mode: 'private', model: '__NEEDS_DEPLOY__', taskType: 'coding', fromCache: false };
   }
 
   /**
@@ -449,9 +468,9 @@ Only respond with one word. No punctuation.`;
   routeLoop(): RouteResult {
     const start = Date.now();
     const result = this.routePrivate();
-    result.mode = "loop";
-    logger.info("Route decision", {
-      mode: "loop",
+    result.mode = 'loop';
+    logger.info('Route decision', {
+      mode: 'loop',
       model: result.model,
       taskType: result.taskType,
       fromCache: result.fromCache,
@@ -582,27 +601,31 @@ Only respond with one word. No punctuation.`;
     const topModels = Object.entries(m.ratings)
       .sort(([, a], [, b]) => {
         const aScore =
-          a.coding.selections - a.coding.overrides * 2 + (a.reasoning.selections - a.reasoning.overrides * 2);
+          a.coding.selections -
+          a.coding.overrides * 2 +
+          (a.reasoning.selections - a.reasoning.overrides * 2);
         const bScore =
-          b.coding.selections - b.coding.overrides * 2 + (b.reasoning.selections - b.reasoning.overrides * 2);
+          b.coding.selections -
+          b.coding.overrides * 2 +
+          (b.reasoning.selections - b.reasoning.overrides * 2);
         return bScore - aScore;
       })
       .slice(0, 5)
       .map(
         ([model, r]) =>
-          `  ${model}: coding ${r.coding.selections}× (${r.coding.overrides} overrides), reasoning ${r.reasoning.selections}× (${r.reasoning.overrides} overrides)`,
+          `  ${model}: coding ${r.coding.selections}× (${r.coding.overrides} overrides), reasoning ${r.reasoning.selections}× (${r.reasoning.overrides} overrides)`
       );
 
     const lines = [
-      "Smart Router Memory:",
-      `  Blocked: ${m.blockedModels.length > 0 ? m.blockedModels.join(", ") : "none"}`,
-      `  Favored: ${m.favoredModels.length > 0 ? m.favoredModels.join(", ") : "none"}`,
-      `  Preferred provider: ${m.preferredProvider || "none"}`,
-      `  Private endpoint: ${m.lastPrivateEndpoint ? m.lastPrivateEndpoint.modelLabel : "none"}`,
+      'Smart Router Memory:',
+      `  Blocked: ${m.blockedModels.length > 0 ? m.blockedModels.join(', ') : 'none'}`,
+      `  Favored: ${m.favoredModels.length > 0 ? m.favoredModels.join(', ') : 'none'}`,
+      `  Preferred provider: ${m.preferredProvider || 'none'}`,
+      `  Private endpoint: ${m.lastPrivateEndpoint ? m.lastPrivateEndpoint.modelLabel : 'none'}`,
       `  Top models:`,
       ...topModels,
     ];
-    return lines.join("\n");
+    return lines.join('\n');
   }
 
   /**

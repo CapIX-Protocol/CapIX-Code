@@ -1,0 +1,26 @@
+{
+  "rustc": 776363091828236830,
+  "features": "[\"alloc\", \"default\", \"dev_urandom_fallback\"]",
+  "declared_features": "[\"alloc\", \"default\", \"dev_urandom_fallback\", \"less-safe-getrandom-custom-or-rdrand\", \"less-safe-getrandom-espidf\", \"slow_tests\", \"std\", \"test_logging\", \"unstable-testing-arm-no-hw\", \"unstable-testing-arm-no-neon\", \"wasm32_unknown_unknown_js\"]",
+  "target": 13947150742743679355,
+  "profile": 5347358027863023418,
+  "path": 17405370529694682064,
+  "deps": [
+    [5491919304041016563, "build_script_build", false, 9699999876123817707],
+    [7098700569944897890, "libc", false, 4816828142560438197],
+    [7667230146095136825, "cfg_if", false, 15968682566023395182],
+    [8995469080876806959, "untrusted", false, 1001926456753609692],
+    [11023519408959114924, "getrandom", false, 8771943492776740481]
+  ],
+  "local": [
+    {
+      "CheckDepInfo": {
+        "dep_info": "debug/.fingerprint/ring-c14b0748a21828a6/dep-lib-ring",
+        "checksum": false
+      }
+    }
+  ],
+  "rustflags": [],
+  "config": 8247474407144887393,
+  "compile_kind": 0
+}
