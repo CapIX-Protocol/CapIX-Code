@@ -48,6 +48,7 @@
   },
   "model": "{env:CAPIX_MODEL:capix/auto}",
   "small_model": "capix/supergemma-gemma3-4b",
+  "enabled_providers": ["capix"],
   "permission": {
     "edit": "ask",
     "bash": "ask"

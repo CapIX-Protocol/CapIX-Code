@@ -127,28 +127,105 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
     if !engine.is_file() {
         return Err(format!("bundled engine missing: {}", engine.display()));
     }
-    let runtime = root.join("runtime");
+    let runtime_dir = root.join("runtime");
     let mut config: serde_json::Value = serde_json::from_slice(
         &std::fs::read(root.join("config/defaults.json"))
             .map_err(|e| format!("cannot read bundled Capix config: {e}"))?,
     )
     .map_err(|e| format!("invalid bundled Capix config: {e}"))?;
-    config["plugin"] = serde_json::json!([
-        runtime.join("src/native-bridge.ts").to_string_lossy(),
-        runtime.join("src/plugin.ts").to_string_lossy()
-    ]);
-    let config_content = serde_json::to_string(&config)
-        .map_err(|e| format!("cannot encode bundled Capix config: {e}"))?;
     let mut command = ProcessCommand::new(&engine);
     // Strip all inherited secrets first, then inject only the freshly rotated,
     // short-lived Capix access token into the child provider. Refresh material
     // never leaves the native keychain boundary.
     scrub_environment(&mut command);
     let access = access_token()?;
+    let canonical = runtime()?.block_on(async {
+        let client = reqwest::Client::new();
+        let models_response = client
+            .get(format!("{WEB_ORIGIN}/api/v1/models"))
+            .bearer_auth(&access)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let models_status = models_response.status();
+        let models_text = models_response.text().await.map_err(|e| e.to_string())?;
+        if !models_status.is_success() {
+            return Err(format!(
+                "Capix model catalog unavailable ({models_status}): {models_text}"
+            ));
+        }
+        let models: serde_json::Value =
+            serde_json::from_str(&models_text).map_err(|e| e.to_string())?;
+        let billing_response = client
+            .get(format!("{WEB_ORIGIN}/api/v1/billing"))
+            .bearer_auth(&access)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let billing_status = billing_response.status();
+        let billing_text = billing_response.text().await.map_err(|e| e.to_string())?;
+        if !billing_status.is_success() {
+            return Err(format!(
+                "Capix billing unavailable ({billing_status}): {billing_text}"
+            ));
+        }
+        let billing: serde_json::Value =
+            serde_json::from_str(&billing_text).map_err(|e| e.to_string())?;
+        Ok::<_, String>((models, billing))
+    })?;
+    let mut engine_models = serde_json::Map::new();
+    engine_models.insert(
+        "auto".into(),
+        serde_json::json!({
+            "name": "Capix Auto · smart routed",
+            "limit": {"context": 128000, "output": 64000}
+        }),
+    );
+    if let Some(models) = canonical.0.get("models").and_then(|v| v.as_array()) {
+        for model in models.iter().filter(|m| {
+            m.get("available")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+        }) {
+            let Some(id) = model.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let label = model.get("label").and_then(|v| v.as_str()).unwrap_or(id);
+            let context = model
+                .get("contextWindow")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(32768);
+            engine_models.insert(
+                id.to_string(),
+                serde_json::json!({
+                    "name": format!("Capix · {label}"),
+                    "limit": {"context": context, "output": context.min(32768)}
+                }),
+            );
+        }
+    }
+    config["provider"]["capix"]["models"] = serde_json::Value::Object(engine_models);
+    config["enabled_providers"] = serde_json::json!(["capix"]);
+    config["model"] = serde_json::json!("capix/auto");
+    config["plugin"] = serde_json::json!([
+        runtime_dir.join("src/native-bridge.ts").to_string_lossy(),
+        runtime_dir.join("src/plugin.ts").to_string_lossy()
+    ]);
+    let config_content = serde_json::to_string(&config)
+        .map_err(|e| format!("cannot encode bundled Capix config: {e}"))?;
+    let available = canonical
+        .1
+        .pointer("/balances/USDC/available")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    eprintln!(
+        "Capix connected · USDC balance {} · model Capix Auto",
+        available
+    );
     command
         .args(args)
-        .env("CAPIX_CODE_BUNDLED_RUNTIME", &runtime)
-        .env("CAPIX_CODE_PLUGIN", runtime.join("src/plugin.ts"))
+        .env("CAPIX_CODE_BUNDLED_RUNTIME", &runtime_dir)
+        .env("CAPIX_CODE_PLUGIN", runtime_dir.join("src/plugin.ts"))
         .env(
             "CAPIX_CODE_DEFAULT_CONFIG",
             root.join("config/defaults.json"),
@@ -304,7 +381,10 @@ fn login() -> Result<ExitCode, String> {
             serde_json::Value::String(token.refresh_token.clone()),
         );
     }
-    let _ = std::fs::write(&cred_file, serde_json::to_vec_pretty(&creds).unwrap_or_default());
+    let _ = std::fs::write(
+        &cred_file,
+        serde_json::to_vec_pretty(&creds).unwrap_or_default(),
+    );
     let _ = set_permissions(&cred_file);
 
     println!("Signed in to Capix Code.");
@@ -315,9 +395,9 @@ fn access_token() -> Result<String, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string())?;
     let refresh = entry
         .get_password()
-        .map_err(|_| "not signed in; run `capix-code login`".to_string())?;
-    let token: TokenResponse = runtime()?.block_on(async {
-        reqwest::Client::new()
+        .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?;
+    let token_result: Result<TokenResponse, String> = runtime()?.block_on(async {
+        let response = reqwest::Client::new()
             .post(format!("{WEB_ORIGIN}/oauth/token"))
             .form(&[
                 ("grant_type", "refresh_token"),
@@ -326,15 +406,23 @@ fn access_token() -> Result<String, String> {
             ])
             .send()
             .await
-            .map_err(|e| e.to_string())?
-            .error_for_status()
-            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+        if !response.status().is_success() {
+            return Err("Capix session expired".into());
+        }
+        response
             .json::<TokenResponse>()
             .await
             .map_err(|e| e.to_string())
-    })?;
-    // Delete the old credential before setting the new one (macOS keychain
-    // set_password fails with errSecDuplicateItem if the item already exists).
+    });
+    let token = match token_result {
+        Ok(value) => value,
+        Err(_) => {
+            let _ = entry.delete_credential();
+            return Err("session expired; run `capix-code login`".into());
+        }
+    };
+    // Delete the old credential before setting the rotated one.
     let _ = entry.delete_credential();
     entry
         .set_password(&token.refresh_token)
@@ -353,7 +441,10 @@ fn access_token() -> Result<String, String> {
                 serde_json::Value::String(token.refresh_token.clone()),
             );
         }
-        let _ = std::fs::write(&cred_file, serde_json::to_vec_pretty(&creds).unwrap_or_default());
+        let _ = std::fs::write(
+            &cred_file,
+            serde_json::to_vec_pretty(&creds).unwrap_or_default(),
+        );
         let _ = set_permissions(&cred_file);
     }
 
@@ -479,8 +570,8 @@ fn main() -> ExitCode {
                 Ok(_) => {
                     // Also clean up the file-based bridge store
                     if let Ok(home) = std::env::var("HOME") {
-                        let cred_file = std::path::PathBuf::from(home)
-                            .join(".capix-code/credentials.json");
+                        let cred_file =
+                            std::path::PathBuf::from(home).join(".capix-code/credentials.json");
                         let _ = std::fs::remove_file(&cred_file);
                     }
                     println!("Signed out of Capix Code.");

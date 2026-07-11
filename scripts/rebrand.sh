@@ -80,6 +80,69 @@ find "$CAPIX_CODE_DIR/packages/capix-code/src" \( -name '*.ts' -o -name '*.tsx' 
 done
 echo "  ✓ display names updated"
 
+# 6b. Replace the terminal identity and customer-visible command copy. These
+# files are an explicit reviewed allowlist: internal package names, protocol
+# identifiers and import contracts remain untouched.
+cp "$DIR/assets/tui-logo.ts" "$CAPIX_CODE_DIR/packages/tui/src/logo.ts"
+CLI_UI="$CAPIX_CODE_DIR/packages/capix-code/src/cli/ui.ts"
+perl -0pi.bak -e 's/const wordmark = \[.*?\]\n/const wordmark = [\n  `  ██████╗ █████╗ ██████╗ ██╗██╗  ██╗`,\n  ` ██╔════╝██╔══██╗██╔══██╗██║╚██╗██╔╝`,\n  ` ██║     ███████║██████╔╝██║ ╚███╔╝ `,\n  ` ╚██████╗██╔══██║██╔═══╝ ██║ ██╔██╗ `,\n  `  ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝`,\n  `                 CAPIX CODE`,\n]\n/s' "$CLI_UI"
+rm -f "$CLI_UI.bak"
+TUI_PRESENTATION="$CAPIX_CODE_DIR/packages/tui/src/util/presentation.ts"
+perl -0pi.bak -e 's/const logo = \{.*?\}\n/const logo = {\n  left: ["  ██████╗ █████╗ ", " ██╔════╝██╔══██╗", " ██║     ███████║", " ╚██████╗██╔══██║", "  ╚═════╝╚═╝  ╚═╝"],\n  right: ["██████╗ ██╗██╗  ██╗", "██╔══██╗██║╚██╗██╔╝", "██████╔╝██║ ╚███╔╝ ", "██╔═══╝ ██║ ██╔██╗ ", "╚═╝     ╚═╝╚═╝  ╚═╝"],\n}\n/s; s/opencode -s/capix-code -s/g' "$TUI_PRESENTATION"
+rm -f "$TUI_PRESENTATION.bak"
+PRESENTATION_FILES=(
+  packages/tui/src/app.tsx
+  packages/tui/src/util/presentation.ts
+  packages/capix-code/src/cli/ui.ts
+  packages/capix-code/src/index.ts
+  packages/capix-code/src/cli/error.ts
+  packages/capix-code/src/cli/cmd/run.ts
+  packages/capix-code/src/cli/cmd/run/splash.ts
+  packages/capix-code/src/cli/cmd/run/footer.permission.tsx
+  packages/capix-code/src/cli/cmd/run/footer.prompt.tsx
+  packages/capix-code/src/cli/cmd/run/permission.shared.ts
+  packages/capix-code/src/provider/error.ts
+  packages/capix-code/src/cli/cmd/attach.ts
+  packages/capix-code/src/cli/cmd/upgrade.ts
+  packages/capix-code/src/cli/cmd/uninstall.ts
+  packages/capix-code/src/cli/cmd/serve.ts
+  packages/capix-code/src/cli/cmd/web.ts
+  packages/capix-code/src/cli/cmd/pr.ts
+  packages/capix-code/src/cli/cmd/tui.ts
+  packages/capix-code/src/cli/network.ts
+)
+for relative in "${PRESENTATION_FILES[@]}"; do
+  file="$CAPIX_CODE_DIR/$relative"
+  test -f "$file" || { echo "ERROR: customer presentation source missing: $relative"; exit 1; }
+  perl -0pi.bak -e '
+    s/OpenCode/Capix Code/g;
+    s/OC \|/Capix |/g;
+    s/opencode --mini/capix-code --mini/g;
+    s/run opencode/run Capix Code/g;
+    s/opencode models/capix-code models/g;
+    s/opencode auth login/capix-code login/g;
+    s/opencode server/Capix Code server/g;
+    s/start opencode/start Capix Code/g;
+    s/path to start opencode/path to start Capix Code/g;
+    s/upgrade opencode/upgrade Capix Code/g;
+    s/opencode upgrade/Capix Code upgrade/g;
+    s/opencode session/Capix Code session/g;
+    s/Starting opencode/Starting Capix Code/g;
+    s/uninstall opencode/uninstall Capix Code/g;
+    s/running opencode/running Capix Code/g;
+    s/path to start opencode/path to start Capix Code/g;
+    s/Thank you for using opencode/Thank you for using Capix Code/g;
+    s/[.]scriptName\("opencode"\)/.scriptName("capix-code")/g;
+    s/startsWith\("opencode /startsWith("capix-code /g;
+    s/opencode[.]local/capix.local/g;
+    s/OPENCODE_SERVER/CAPIX_CODE_SERVER/g;
+    s/or '\''opencode'\''/or '\''capix'\''/g;
+    s/opencode does not support/Capix Code does not support/g;
+  ' "$file"
+  rm -f "$file.bak"
+done
+echo "  ✓ terminal title, splash, logo and customer command copy replaced"
+
 # 7. Install script references.
 INSTALL="$CAPIX_CODE_DIR/install"
 if [ -f "$INSTALL" ]; then
@@ -93,3 +156,4 @@ fi
 
 echo "✓ Rebrand complete. Only the binary name, config dirs, and env vars are rebranded."
 echo "  Runtime plugin/provider are staged by scripts/build.sh and verified fail-closed."
+"$DIR/scripts/assert-upstream-brand.sh" "$CAPIX_CODE_DIR"
