@@ -30,11 +30,13 @@ if [ -f "packages/capix-code/script/build.ts" ]; then
 fi
 
 # Find the output — handle both renamed and original patterns.
-OUTPUT=$(find packages/capix-code/dist -name "capix-code" -type f 2>/dev/null | head -1)
+EXE_SUFFIX=""
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE_SUFFIX=".exe";; esac
+OUTPUT=$(find packages/capix-code/dist -name "capix-code$EXE_SUFFIX" -type f 2>/dev/null | head -1)
 if [ -z "$OUTPUT" ]; then
-  OUTPUT=$(find packages/capix-code/dist -name "opencode" -type f 2>/dev/null | head -1)
+  OUTPUT=$(find packages/capix-code/dist -name "opencode$EXE_SUFFIX" -type f 2>/dev/null | head -1)
   if [ -n "$OUTPUT" ]; then
-    NEW_OUTPUT="$(dirname "$OUTPUT")/capix-code"
+    NEW_OUTPUT="$(dirname "$OUTPUT")/capix-code$EXE_SUFFIX"
     mv "$OUTPUT" "$NEW_OUTPUT"
     OUTPUT="$NEW_OUTPUT"
   fi
@@ -44,8 +46,6 @@ if [ -n "$OUTPUT" ]; then
   ARTIFACT="$DIR/dist/customer"
   rm -rf "$ARTIFACT"
   mkdir -p "$ARTIFACT/bin" "$ARTIFACT/engine" "$ARTIFACT/runtime/packages" "$ARTIFACT/config"
-  EXE_SUFFIX=""
-  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE_SUFFIX=".exe";; esac
   cp "$OUTPUT" "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   cp -R "$DIR/src" "$ARTIFACT/runtime/src"
   cp -R "$DIR/packages/runtime-provider" "$ARTIFACT/runtime/packages/runtime-provider"
