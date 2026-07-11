@@ -1,0 +1,23 @@
+/**
+ * Capix Code — TUI Theme
+ *
+ * Applied via ~/.config/capix-code/tui.json on first run.
+ * Mirrors the CapIX brand guide: deep slate-navy canvas, neon teal
+ * accent, green success, Plus Jakarta Sans / JetBrains Mono typography.
+ *
+ * capix-code renders the TUI using these tokens. The theme
+ * name "capix" appears in the /themes picker.
+ */
+{
+  "theme": "capix",
+  "scroll_speed": 3,
+  "scroll_acceleration": { "enabled": true },
+  "diff_style": "auto",
+  "mouse": true,
+  "attention": {
+    "enabled": true,
+    "notifications": true,
+    "sound": true,
+    "volume": 0.4
+  }
+}

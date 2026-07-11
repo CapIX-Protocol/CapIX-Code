@@ -1,0 +1,57 @@
+# Capix Code TUI Color Theme
+#
+# These are the raw ANSI color values used by opentui when rendering the
+# capix-code TUI. They map the Capix brand palette to terminal colors:
+#
+#   Canvas:  #0a0e14 (deep slate-navy background)
+#   Accent:  #3DCED6 (neon teal — primary actions, highlights, links)
+#   Success: #14F195 (green — active status, completions)
+#   Text:    #f1efe9 (primary text), #94a3b8 (secondary), #64748b (muted)
+#   Warning: #fbbf24 (amber — pending, rate limits)
+#   Error:   #ef4444 (red — failures, destructive actions)
+#
+# Theme file format: capix-code looks for themes in ~/.config/capix-code/themes/
+# as .toml files. The theme key in tui.json selects by filename.
+
+[theme]
+name = "capix"
+description = "Capix brand theme — deep slate-navy with neon teal accents"
+
+[theme.colors]
+# Background layers
+bg = "#0a0e14"
+bg_alt = "#0e1218"
+bg_hover = "rgba(61,206,214,0.06)"
+bg_active = "rgba(61,206,214,0.10)"
+
+# Text
+fg = "#f1efe9"
+fg_secondary = "#94a3b8"
+fg_muted = "#64748b"
+fg_accent = "#3DCED6"
+fg_success = "#14F195"
+fg_warning = "#fbbf24"
+fg_error = "#ef4444"
+
+# Borders
+border = "rgba(255,255,255,0.08)"
+border_accent = "rgba(61,206,214,0.30)"
+
+# Status bar
+status_bg = "#0a0e14"
+status_fg = "#3DCED6"
+
+# Input fields
+input_bg = "rgba(0,0,0,0.30)"
+input_border = "rgba(61,206,214,0.20)"
+input_border_focus = "#3DCED6"
+
+# Diff view
+diff_add_bg = "rgba(20,241,149,0.06)"
+diff_add_fg = "#14F195"
+diff_del_bg = "rgba(239,68,68,0.06)"
+diff_del_fg = "#ef4444"
+
+# Code blocks
+code_bg = "rgba(0,0,0,0.40)"
+code_fg = "#3DCED6"

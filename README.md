@@ -1,0 +1,134 @@
+# Capix Code
+
+The CLI coding assistant for the Capix network — built-in Capix LLM provider, Covenant governance, and Dev Token rewards. Bundled inside Capix IDE, or installable standalone.
+
+## About
+
+Capix Code is a full-featured AI coding agent with the Capix provider pre-configured as the default. It ships with:
+
+- **Capix branding** — the TUI shows the Capix ASCII art banner on launch with brand colors (neon teal `#3DCED6`, green `#14F195`), the Capix brand mark logo, and a full TUI color theme using the brand palette (deep slate-navy canvas, teal accents, green success states)
+- **Built-in Capix provider** — the `capix` provider is the default, using `@ai-sdk/openai-compatible`, pointing at the Capix OpenAI-compatible gateway. No manual config needed.
+- **Smart Route (auto mode)** — when using `capix/auto` (the default), a mini-AI classifier analyzes each request and routes it to the best model for the task: a strong reasoning model (Llama 3.3 70B, Gemma 3 27B) for planning/analysis, and a strong coding model (Qwen2.5-Coder, CodeGemma) for writing code. The classifier runs on `capix/supergemma-gemma3-4b` via the Capix gateway (~200ms, cached per session) — imperceptible to the user. Results are cached per session so similar consecutive requests skip the classifier entirely.
+- **Capix model catalog** — 8 pre-listed models including auto-routing (cheapest), Gemma 3 variants (27B/12B/4B), CodeGemma 7B, Qwen2.5-Coder 7B/32B, and Llama 3.3 70B
+- **Auto-connect** — Capix IDE sets `CAPIX_BASE_URL` and `CAPIX_API_KEY` env vars in launched terminals from its SecretStorage, so `capix-code` works with zero additional setup
+- **Dev Token rewards** — every commit you make with Capix Code mints DEV tokens to your wallet. Complete a session, deploy, or record a decision → more tokens. On-chain proof of useful development, exchangeable for SOL or CPX in the future.
+- **Covenant governance** — safe defaults: edit/bash actions require approval, autoupdate disabled (IDE manages updates)
+
+## Install
+
+### Standalone
+
+```bash
+curl -fsSL https://capix.network/install-code.sh | bash
+```
+
+Or with npm:
+
+```bash
+npm i -g capix-code
+```
+
+### Bundled in Capix IDE
+
+Capix IDE ships `capix-code` in its PATH. When you click "Capix: Launch Capix Code", the IDE opens a terminal with `CAPIX_BASE_URL`, `CAPIX_API_KEY`, and `CAPIX_MODEL` env vars pre-set from your auto-connected LLM endpoint, then runs `capix-code`.
+
+## Quick start
+
+```bash
+# Using the Capix gateway (auto-routes to the cheapest model):
+export CAPIX_BASE_URL=https://capix.network/api/v1
+export CAPIX_API_KEY=cpk_...        # from capix.network → API Keys
+# CAPIX_MODEL defaults to "capix/auto" (cheapest route)
+
+capix-code
+```
+
+Or with a self-deployed LLM endpoint:
+
+```bash
+export CAPIX_BASE_URL=http://94.23.x.x:12345/v1     # from /cloud/llm deploy result
+export CAPIX_API_KEY=cpxllm_...                      # from the deploy response
+export CAPIX_MODEL=capix/supergemma-gemma3-27b       # the model you deployed
+
+capix-code
+```
+
+## Dev Tokens
+
+Every time you do verifiable development with Capix Code, DEV tokens are minted to your wallet:
+
+| Action | Reward |
+|---|---|
+| Commit code | +1 DEV |
+| Deploy an app/agent/LLM | +5 DEV |
+| Complete a productive session (50+ turns) | +10 DEV |
+| Record an architectural decision | +2 DEV |
+| Ship a complete product | +50 DEV |
+
+Tokens are on-chain proof of useful work (Solana devnet pre-mainnet). In the future, DEV tokens will be exchangeable for SOL or CPX at launch — rewarding developers who built real products with Capix tools.
+
+## How it works
+
+Capix Code is a complete AI coding agent built on TypeScript/Bun. The repo is a brand kit — `scripts/bootstrap.sh` clones the full source, then `scripts/rebrand.sh` applies:
+
+- Binary name: → `capix-code`
+- Config dirs: `~/.config/capix-code/`
+- Env var prefixes: `CAPIX_CODE_`
+- The Capix provider config (`config/defaults.json`) as the bundled default
+- The Capix TUI theme (`themes/capix.toml`) with brand colors
+- The Capix launch banner (`brand/banner.ts`) with ASCII art + ANSI brand colors
+
+## Building from source
+
+Requires [Bun 1.3+](https://bun.sh).
+
+```bash
+git clone https://github.com/Ritzky/capix-code.git
+cd capix-code
+./scripts/bootstrap.sh    # clones source + applies branding + installs config + theme
+./scripts/dev.sh          # launches in dev mode (Bun)
+```
+
+To build a standalone binary:
+
+```bash
+./scripts/build.sh        # produces dist/capix-code-<platform>/bin/capix-code
+```
+
+For CI/cross-platform release builds, tag a version:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+# The Release workflow builds mac (arm64/x64), linux (x64/arm64), windows (x64)
+```
+
+## Config
+
+The default config (`config/defaults.json`) registers:
+
+| Setting | Value |
+|---|---|
+| Provider ID | `capix` (via `@ai-sdk/openai-compatible`) |
+| Base URL | `CAPIX_BASE_URL` env var (defaults to `https://capix.network/api/v1`) |
+| API Key | `CAPIX_API_KEY` env var |
+| Default Model | `CAPIX_MODEL` env var (defaults to `capix/auto` — smart route) |
+| Smart Route: Classifier | `capix/supergemma-gemma3-4b` via Capix gateway (cached per session) |
+| Smart Route: Reasoning | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-27b` |
+| Smart Route: Coding | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-4b` |
+| Small Model | `capix/supergemma-gemma3-4b` (for lightweight tasks like titles) |
+| Permission Mode | `edit: ask`, `bash: ask` (safe defaults) |
+| Autoupdate | Disabled (IDE manages updates) |
+
+Override anything in `~/.config/capix-code/capix-code.json` or the project-level `capix-code.json`.
+
+## License
+
+- **Capix Code brand kit** (scripts, config, themes, brand): Apache-2.0, Copyright 2026 Capix.
+
+See `NOTICE`.
+
+## Links
+
+- **Capix Protocol** — [capix.network](https://capix.network) · [github.com/Ritzky/Capix-Protocol](https://github.com/Ritzky/Capix-Protocol)
+- **Capix IDE** — [github.com/Ritzky/CapIX-IDE](https://github.com/Ritzky/CapIX-IDE)

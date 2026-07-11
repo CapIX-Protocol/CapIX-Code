@@ -1,0 +1,58 @@
+{
+  "provider": {
+    "capix": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Capix",
+      "options": {
+        "baseURL": "{env:CAPIX_BASE_URL:https://capix.network/api/v1}",
+        "apiKey": "{env:CAPIX_API_KEY}",
+        "headers": {
+          "X-Capix-Source": "capix-code"
+        }
+      },
+      "models": {
+        "auto": {
+          "name": "Capix Auto (smart route — picks the best model for the task)",
+          "limit": { "context": 128000, "output": 64000 }
+        },
+        "supergemma-gemma3-27b": {
+          "name": "SuperGemma · Gemma 3 27B",
+          "limit": { "context": 131072, "output": 32768 }
+        },
+        "supergemma-gemma3-12b": {
+          "name": "SuperGemma · Gemma 3 12B",
+          "limit": { "context": 131072, "output": 16384 }
+        },
+        "supergemma-gemma3-4b": {
+          "name": "SuperGemma · Gemma 3 4B",
+          "limit": { "context": 131072, "output": 8192 }
+        },
+        "supergemma-codegemma-7b": {
+          "name": "SuperGemma · CodeGemma 7B",
+          "limit": { "context": 8192, "output": 8192 }
+        },
+        "qwen2.5-coder-7b": {
+          "name": "Qwen2.5-Coder 7B",
+          "limit": { "context": 131072, "output": 16384 }
+        },
+        "qwen2.5-coder-32b": {
+          "name": "Qwen2.5-Coder 32B (AWQ)",
+          "limit": { "context": 131072, "output": 32768 }
+        },
+        "llama-3.3-70b-fp8": {
+          "name": "Llama 3.3 70B (FP8)",
+          "limit": { "context": 131072, "output": 32768 }
+        }
+      }
+    }
+  },
+  "model": "{env:CAPIX_MODEL:capix/auto}",
+  "small_model": "capix/supergemma-gemma3-4b",
+  "permission": {
+    "edit": "ask",
+    "bash": "ask"
+  },
+  "share": "manual",
+  "autoupdate": false,
+  "plugin": ["./src/plugin.ts"]
+}
