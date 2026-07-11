@@ -40,8 +40,8 @@ import { CredentialBroker } from './broker.js';
 import { logger } from './logger.js';
 
 /** Default production origins. Overridable by config; never by env secret. */
-export const CAPIX_API_BASE = 'https://api.capix.network';
-export const CAPIX_INFERENCE_BASE = 'https://inference.capix.network';
+export const CAPIX_API_BASE = 'https://www.capix.network/api/v1';
+export const CAPIX_INFERENCE_BASE = 'https://www.capix.network/api/v1';
 
 /** Client/release identification attached to every request. */
 export interface CapixClientMeta {

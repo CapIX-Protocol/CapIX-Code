@@ -4,8 +4,8 @@
       "npm": "@ai-sdk/openai-compatible",
       "name": "Capix",
       "options": {
-        "baseURL": "{env:CAPIX_BASE_URL:https://capix.network/api/v1}",
-        "apiKey": "{env:CAPIX_API_KEY}",
+        "baseURL": "{env:CAPIX_BASE_URL:https://www.capix.network/api/v1}",
+        "apiKey": "{env:CAPIX_API_KEY:capix-oauth}",
         "headers": {
           "X-Capix-Source": "capix-code"
         }

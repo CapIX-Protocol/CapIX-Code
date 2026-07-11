@@ -151,7 +151,7 @@ export class CredentialBroker {
       throw new TokenReuseError();
     }
 
-    const res = await fetch('https://api.capix.network/v1/auth/token', {
+    const res = await fetch('https://www.capix.network/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,7 +196,7 @@ export class CredentialBroker {
     const state = this.randomToken(24);
     const codeChallenge = challenge;
     // Build the authorize URL; the real broker opens the system browser.
-    const url = new URL('https://api.capix.network/v1/auth/authorize');
+    const url = new URL('https://www.capix.network/oauth/authorize');
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', 'capix-code');
     url.searchParams.set('code_challenge', codeChallenge);
@@ -236,7 +236,7 @@ export class CredentialBroker {
     const code = await this.awaitCode();
     const verifier = this.pkceVerifier;
     if (!verifier) throw new Error('capix-broker: no PKCE verifier');
-    const res = await fetch('https://api.capix.network/v1/auth/token', {
+    const res = await fetch('https://www.capix.network/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -284,7 +284,7 @@ export class CredentialBroker {
     // Hash the key before comparison; never store the raw key in memory
     // longer than needed. The server validates and returns metadata.
     const digest = await this.sha256(key);
-    const res = await fetch('https://api.capix.network/v1/auth/api-key/verify', {
+    const res = await fetch('https://www.capix.network/api/v1/auth/api-key/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key_digest: digest, client: 'capix-code' }),
@@ -311,7 +311,7 @@ export class CredentialBroker {
     try {
       const refresh = await this.loadRefreshToken();
       if (refresh) {
-        await fetch('https://api.capix.network/v1/auth/revoke', {
+        await fetch('https://www.capix.network/oauth/revoke', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ token: refresh, client: 'capix-code' }),
@@ -332,7 +332,7 @@ export class CredentialBroker {
     try {
       const access = this.sessionAccess?.token;
       if (access) {
-        await fetch('https://api.capix.network/v1/auth/device/revoke', {
+        await fetch('https://www.capix.network/api/v1/auth/device/revoke', {
           method: 'POST',
           headers: { Authorization: `Bearer ${access}` },
         });

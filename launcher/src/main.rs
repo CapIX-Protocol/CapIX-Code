@@ -9,6 +9,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, ExitCode};
 use std::time::Duration;
 
+#[cfg(unix)]
+fn set_permissions(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn set_permissions(_path: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
 #[derive(Parser)]
 #[command(
     name = "capix-code",
@@ -90,7 +101,6 @@ fn scrub_environment(command: &mut ProcessCommand) {
     ];
     const EXACT: &[&str] = &[
         "TOKEN",
-        "API_KEY",
         "APIKEY",
         "REFRESH_TOKEN",
         "ACCESS_TOKEN",
@@ -101,7 +111,6 @@ fn scrub_environment(command: &mut ProcessCommand) {
         "AUTHORIZATION",
         "CAPIX_ACCESS_TOKEN",
         "CAPIX_REFRESH_TOKEN",
-        "CAPIX_API_KEY",
         "CAPIX_OPERATOR_TOKEN",
         "CAPIX_TREASURY_SECRET_KEY",
     ];
@@ -124,7 +133,10 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
             .map_err(|e| format!("cannot read bundled Capix config: {e}"))?,
     )
     .map_err(|e| format!("invalid bundled Capix config: {e}"))?;
-    config["plugin"] = serde_json::json!([runtime.join("src/plugin.ts").to_string_lossy()]);
+    config["plugin"] = serde_json::json!([
+        runtime.join("src/native-bridge.ts").to_string_lossy(),
+        runtime.join("src/plugin.ts").to_string_lossy()
+    ]);
     let config_content = serde_json::to_string(&config)
         .map_err(|e| format!("cannot encode bundled Capix config: {e}"))?;
     let mut command = ProcessCommand::new(&engine);
@@ -141,10 +153,11 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
             "CAPIX_CODE_DEFAULT_CONFIG",
             root.join("config/defaults.json"),
         )
-        // The pinned engine's reviewed configuration contract. The content is
-        // generated from our immutable bundled config and points to the exact
-        // bundled plugin; no user-global predecessor configuration is loaded.
-        .env("OPENCODE_CONFIG_CONTENT", config_content)
+        // The rebranded engine reads CAPIX_CODE_CONFIG_CONTENT (not
+        // OPENCODE_CONFIG_CONTENT) at config.ts:468. This carries the
+        // opencode-schema config with the plugin path so the engine
+        // actually loads the Capix provider, auth and sandbox.
+        .env("CAPIX_CODE_CONFIG_CONTENT", config_content)
         .env("CAPIX_BASE_URL", "https://www.capix.network/api/v1")
         .env(
             "CAPIX_INFERENCE_BASE_URL",
@@ -272,6 +285,28 @@ fn login() -> Result<ExitCode, String> {
         .map_err(|e| e.to_string())?
         .set_password(&token.refresh_token)
         .map_err(|e| format!("OS credential store rejected token: {e}"))?;
+
+    // Also write to the file-based bridge store so the in-process
+    // CredentialBroker (running inside the Bun engine) can read it via
+    // globalThis.capixSecureStore without direct keyring access.
+    let cred_dir = std::env::var("HOME")
+        .map(|h| std::path::PathBuf::from(h).join(".capix-code"))
+        .unwrap_or_else(|_| std::path::PathBuf::from(".capix-code"));
+    let _ = std::fs::create_dir_all(&cred_dir);
+    let cred_file = cred_dir.join("credentials.json");
+    let mut creds: serde_json::Value = std::fs::read(&cred_file)
+        .ok()
+        .and_then(|d| serde_json::from_slice(&d).ok())
+        .unwrap_or(serde_json::json!({}));
+    if let Some(obj) = creds.as_object_mut() {
+        obj.insert(
+            format!("{KEYRING_SERVICE}:{KEYRING_ACCOUNT}"),
+            serde_json::Value::String(token.refresh_token.clone()),
+        );
+    }
+    let _ = std::fs::write(&cred_file, serde_json::to_vec_pretty(&creds).unwrap_or_default());
+    let _ = set_permissions(&cred_file);
+
     println!("Signed in to Capix Code.");
     Ok(ExitCode::SUCCESS)
 }
@@ -301,6 +336,24 @@ fn access_token() -> Result<String, String> {
     entry
         .set_password(&token.refresh_token)
         .map_err(|e| e.to_string())?;
+
+    // Sync the rotated refresh token to the file-based bridge store.
+    if let Ok(home) = std::env::var("HOME") {
+        let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
+        let mut creds: serde_json::Value = std::fs::read(&cred_file)
+            .ok()
+            .and_then(|d| serde_json::from_slice(&d).ok())
+            .unwrap_or(serde_json::json!({}));
+        if let Some(obj) = creds.as_object_mut() {
+            obj.insert(
+                format!("{KEYRING_SERVICE}:{KEYRING_ACCOUNT}"),
+                serde_json::Value::String(token.refresh_token.clone()),
+            );
+        }
+        let _ = std::fs::write(&cred_file, serde_json::to_vec_pretty(&creds).unwrap_or_default());
+        let _ = set_permissions(&cred_file);
+    }
+
     Ok(token.access_token)
 }
 
@@ -421,6 +474,12 @@ fn main() -> ExitCode {
                 keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string());
             match entry.and_then(|e| e.delete_credential().map_err(|e| e.to_string())) {
                 Ok(_) => {
+                    // Also clean up the file-based bridge store
+                    if let Ok(home) = std::env::var("HOME") {
+                        let cred_file = std::path::PathBuf::from(home)
+                            .join(".capix-code/credentials.json");
+                        let _ = std::fs::remove_file(&cred_file);
+                    }
                     println!("Signed out of Capix Code.");
                     Ok(ExitCode::SUCCESS)
                 }
