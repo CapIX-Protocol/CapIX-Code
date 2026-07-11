@@ -41,7 +41,10 @@ jobs:
           bun-version: "1.3.14"
       - uses: dtolnay/rust-toolchain@stable
       - name: Install overlay dependencies
-        run: npm ci
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/Ritzky/Capix-Protocol.git ../capix-protocol
+          npm ci
       - name: Verify overlay
         run: |
           npm run compile
