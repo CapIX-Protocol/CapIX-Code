@@ -12,7 +12,7 @@
     "resolveJsonModule": true,
     "types": ["node"],
     "paths": {
-      "@capix/contracts": ["../capix-protocol/packages/contracts/src/index.ts"]
+      "@capix/contracts": ["types/capix-contracts.d.ts"]
     }
   },
   "include": ["src/**/*", "brand/**/*", "types/**/*"],
