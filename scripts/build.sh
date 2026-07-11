@@ -50,7 +50,7 @@ if [ -n "$OUTPUT" ]; then
   cp -R "$DIR/src" "$ARTIFACT/runtime/src"
   cp -R "$DIR/packages/runtime-provider" "$ARTIFACT/runtime/packages/runtime-provider"
   cp "$DIR/package.json" "$DIR/package-lock.json" "$ARTIFACT/runtime/"
-  cp "$DIR/config/capix-defaults.json" "$ARTIFACT/config/"
+  cp "$DIR/config/capix-defaults.json" "$DIR/config/defaults.json" "$ARTIFACT/config/"
   chmod 0755 "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   (cd "$ARTIFACT/runtime" && npm ci --omit=dev --ignore-scripts)
   (cd "$DIR/launcher" && cargo build --locked --release)
