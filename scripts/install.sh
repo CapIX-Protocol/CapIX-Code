@@ -19,7 +19,19 @@ OS="${CAPIX_INSTALL_OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
 ARCH="${CAPIX_INSTALL_ARCH:-$(uname -m)}"
 case "$OS" in
   darwin|linux) ;;
-  *) echo "ERROR: unsupported operating system '$OS'" >&2; exit 2 ;;
+  mingw*|msys*|cygwin*|win32*|windows*)
+    echo "ERROR: Windows is not supported by this shell installer." >&2
+    echo "Download the Windows binary from:" >&2
+    echo "  https://github.com/CapIX-Protocol/Capix-Code/releases" >&2
+    echo "Or use PowerShell:" >&2
+    echo "  iwr -UseBasicParsing https://github.com/CapIX-Protocol/Capix-Code/releases/download/${VERSION}/capix-code-windows-x64.exe -OutFile capix-code.exe" >&2
+    exit 2
+    ;;
+  *)
+    echo "ERROR: unsupported operating system '$OS'" >&2
+    echo "Download a binary from: https://github.com/CapIX-Protocol/Capix-Code/releases" >&2
+    exit 2
+    ;;
 esac
 case "$ARCH" in
   x86_64) ARCH="x64" ;;

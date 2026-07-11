@@ -24,7 +24,7 @@ describe('bundled Capix AI SDK provider', () => {
 
   it('loads through the local package name OpenCode receives from api.npm', async () => {
     const runtime = await import('@capix/runtime-provider');
-    const model = runtime.createCapix().languageModel('auto');
+    const model = runtime.createCapix().languageModel!('auto');
     expect(model.specificationVersion).toBe('v2');
     expect(model.provider).toBe('capix');
     expect(model.modelId).toBe('auto');

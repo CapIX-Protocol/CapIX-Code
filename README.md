@@ -100,7 +100,8 @@ For CI/cross-platform release builds, tag a version:
 ```bash
 git tag v1.1.0
 git push origin v1.1.0
-# The Release workflow builds: linux (x64), macOS (x64/arm64), Windows (x64)
+# The CI release job builds the native launcher binary (ubuntu-latest) and
+# packages a source tarball with SHA-256 checksums and SBOM (UNSIGNED draft).
 ```
 
 ## Config

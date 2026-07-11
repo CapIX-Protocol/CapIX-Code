@@ -16,6 +16,6 @@
       "@capix/contracts": ["types/capix-contracts.d.ts"]
     }
   },
-  "include": ["src/**/*", "brand/**/*", "types/**/*"],
+  "include": ["src/**/*", "brand/**/*", "types/**/*", "tests/**/*"],
   "exclude": ["node_modules", "dist"]
 }

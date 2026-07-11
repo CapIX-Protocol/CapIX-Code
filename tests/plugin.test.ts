@@ -1,322 +1,177 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { PluginInput, Hooks } from '@opencode-ai/plugin';
 
-// Mock fs before importing the plugin (which imports SmartRouter)
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(() => false),
-  readFileSync: vi.fn(() => ''),
-  writeFileSync: vi.fn(),
-  mkdirSync: vi.fn(),
-}));
-
-// Mock logger
+// Mock logger to keep test output clean.
 vi.mock('../src/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-import { capixSmartRoute, getSmartRouter } from '../src/plugin';
-import * as fs from 'node:fs';
+// Mock CredentialBroker — instantiated at plugin load, must not touch the network.
+vi.mock('../src/broker', () => ({
+  CredentialBroker: vi.fn().mockImplementation(() => ({
+    login: vi.fn().mockResolvedValue(undefined),
+    authorizationUrl: vi.fn().mockResolvedValue('https://api.capix.network/v1/auth/authorize'),
+    exchangeCode: vi.fn().mockResolvedValue({ type: 'success' as const }),
+    registerApiKey: vi.fn().mockResolvedValue({ type: 'success' as const, key: 'cpk_test' }),
+  })),
+}));
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// Mock WorkspaceSandbox — instantiated at plugin load, must not touch the fs.
+const mockShouldApproveCommand = vi.fn().mockReturnValue(true);
+const mockScrubEnvironment = vi.fn().mockImplementation((env: Record<string, string>) => env);
+const mockIsSecretPath = vi.fn().mockReturnValue(false);
+const mockCloseToolCapabilities = vi.fn();
 
-function mockFetchResponse(data: unknown) {
-  return { json: async () => data } as unknown as Response;
+vi.mock('../src/sandbox', () => ({
+  WorkspaceSandbox: vi.fn().mockImplementation(() => ({
+    profile: 'restricted' as const,
+    shouldApproveCommand: mockShouldApproveCommand,
+    scrubEnvironment: mockScrubEnvironment,
+    isSecretPath: mockIsSecretPath,
+    closeToolCapabilities: mockCloseToolCapabilities,
+  })),
+}));
+
+// Mock capix-provider — both statically and dynamically imported by plugin.ts.
+const mockProviderHook = { id: 'capix', models: vi.fn() };
+vi.mock('../src/capix-provider', () => ({
+  capixProvider: { name: 'capix' },
+  createCapixProviderHook: vi.fn(() => mockProviderHook),
+  capixAuthLoader: vi.fn(),
+  CAPIX_INFERENCE_BASE: 'https://inference.capix.network',
+  CAPIX_API_BASE: 'https://api.capix.network',
+  setBrokerAccessor: vi.fn(),
+  setInferenceBaseResolver: vi.fn(),
+}));
+
+import { plugin, CAPIX_PLUGIN_VERSION, CAPIX_ACP_VERSION } from '../src/plugin';
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+async function getHooks(options?: Record<string, unknown>): Promise<Hooks> {
+  return plugin({} as unknown as PluginInput, options);
 }
-
-function mockCatalogResponse(
-  models: Array<{ model: string; provider: string; spotPrice: number; status: string }>
-) {
-  return mockFetchResponse({ listings: models });
-}
-
-function mockClassifyResponse(content: string) {
-  return mockFetchResponse({ choices: [{ message: { content } }] });
-}
-
-interface MockMessage {
-  messages?: Array<{ role: string; content: string }>;
-  model?: string;
-  [key: string]: unknown;
-}
-
-interface MockContext {
-  sessionId?: string;
-  model?: string;
-}
-
-function makeMessage(content: string): MockMessage {
-  return { messages: [{ role: 'user', content }] };
-}
-
-function makeContext(model = 'capix/auto'): MockContext {
-  return { sessionId: 'test-session', model };
-}
-
-// ── Setup / Teardown ───────────────────────────────────────────────────────
-
-const originalFetch = globalThis.fetch;
-const originalEnv = { ...process.env };
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  (fs.existsSync as ReturnType<typeof vi.fn>).mockReturnValue(false);
-
-  // Reset router memory state
-  getSmartRouter().resetMemory();
-
-  // Clear env
-  delete process.env.CAPIX_ROUTE_MODE;
-  delete process.env.CAPIX_BASE_URL;
-  delete process.env.CAPIX_API_KEY;
-  process.env.CAPIX_API_KEY = 'test-api-key';
-  process.env.CAPIX_BASE_URL = 'https://capix.network/api/v1';
-});
-
-afterEach(() => {
-  globalThis.fetch = originalFetch;
-  process.env = { ...originalEnv };
-});
-
-// C4: This entire test file exercises the deprecated `capixSmartRoute` /
-// `getSmartRouter` API that was an invented client-side router. The plugin
-// (src/plugin.ts) has been rewritten to use the real @opencode-ai/plugin
-// contract and no longer exports `capixSmartRoute` or `getSmartRouter`.
-// These tests are skipped until they are rewritten against the new contract
-// or removed entirely as part of the C4 workstream (server-authoritative
-// routing replaces client-side classification/scoring).
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
-describe.skip('Plugin — Lifecycle', () => {
-  it('should export a capixSmartRoute plugin object', () => {
-    expect(capixSmartRoute).toBeDefined();
-    expect(capixSmartRoute.name).toBe('capix-smart-route');
-    expect(typeof capixSmartRoute.onMessage).toBe('function');
-    expect(typeof capixSmartRoute.info).toBe('function');
+describe('Plugin constants', () => {
+  it('CAPIX_PLUGIN_VERSION is "0.1.0"', () => {
+    expect(CAPIX_PLUGIN_VERSION).toBe('0.1.0');
   });
 
-  it('should return info with mode, memory, and hasPrivateEndpoint', () => {
-    const info = capixSmartRoute.info!();
-    expect(info.mode).toBe('auto');
-    expect(typeof info.memory).toBe('string');
-    expect(info.memory).toContain('Smart Router Memory:');
-    expect(info.hasPrivateEndpoint).toBe(false);
-  });
-
-  it('should reflect private mode in info when env is set', () => {
-    process.env.CAPIX_ROUTE_MODE = 'private';
-    const info = capixSmartRoute.info!();
-    expect(info.mode).toBe('private');
-  });
-
-  it('should reflect loop mode in info when env is set', () => {
-    process.env.CAPIX_ROUTE_MODE = 'loop';
-    const info = capixSmartRoute.info!();
-    expect(info.mode).toBe('loop');
+  it('CAPIX_ACP_VERSION is "1"', () => {
+    expect(CAPIX_ACP_VERSION).toBe('1');
   });
 });
 
-describe.skip('Plugin — Route interception (auto mode)', () => {
-  it('should return default model when no API key is set', async () => {
-    delete process.env.CAPIX_API_KEY;
-    const msg = makeMessage('Write a function');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext() as any);
-    expect(result.model).toBe('capix/supergemma-gemma3-4b');
+describe('Plugin factory — Hooks structure', () => {
+  it('returns a Hooks object with all expected hook keys', async () => {
+    const hooks = await getHooks();
+
+    expect(hooks).toBeDefined();
+    expect(hooks.provider).toBeDefined();
+    expect(hooks.auth).toBeDefined();
+    expect(hooks['tool.execute.before']).toBeDefined();
+    expect(typeof hooks['tool.execute.before']).toBe('function');
+    expect(hooks['shell.env']).toBeDefined();
+    expect(typeof hooks['shell.env']).toBe('function');
+    expect(hooks['permission.ask']).toBeDefined();
+    expect(typeof hooks['permission.ask']).toBe('function');
+    expect(hooks.dispose).toBeDefined();
+    expect(typeof hooks.dispose).toBe('function');
   });
 
-  it('should pass through when model is not capix/auto', async () => {
-    const msg = makeMessage('Write a function');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('custom-model') as any);
-    expect(result).toBe(msg);
-    expect(result.model).toBeUndefined();
+  it('does not register chat.message, chat.params, or chat.headers hooks', async () => {
+    const hooks = await getHooks();
+    expect(hooks['chat.message']).toBeUndefined();
+    expect(hooks['chat.params']).toBeUndefined();
+    expect(hooks['chat.headers']).toBeUndefined();
+  });
+});
+
+describe('Plugin factory — Provider hook', () => {
+  it('provider hook has id "capix"', async () => {
+    const hooks = await getHooks();
+    expect(hooks.provider).toBeDefined();
+    expect(hooks.provider?.id).toBe('capix');
   });
 
-  it('should pass through when model is not auto (bare)', async () => {
-    const msg = makeMessage('Write a function');
-    const result = await capixSmartRoute.onMessage!(
-      msg as any,
-      makeContext('openai/gpt-4o') as any
+  it('provider hook has a models function', async () => {
+    const hooks = await getHooks();
+    expect(typeof hooks.provider?.models).toBe('function');
+  });
+});
+
+describe('Plugin factory — Auth hook', () => {
+  it('auth hook has provider "capix"', async () => {
+    const hooks = await getHooks();
+    expect(hooks.auth).toBeDefined();
+    expect(hooks.auth?.provider).toBe('capix');
+  });
+
+  it('auth hook has exactly two methods: oauth and api', async () => {
+    const hooks = await getHooks();
+    const methods = hooks.auth?.methods ?? [];
+    expect(methods).toHaveLength(2);
+    const types = methods.map((m) => m.type);
+    expect(types).toContain('oauth');
+    expect(types).toContain('api');
+  });
+
+  it('oauth method has label "Sign in with Capix"', async () => {
+    const hooks = await getHooks();
+    const oauth = hooks.auth?.methods?.find((m) => m.type === 'oauth');
+    expect(oauth).toBeDefined();
+    expect(oauth?.label).toBe('Sign in with Capix');
+  });
+
+  it('api method has label "Use a project API key"', async () => {
+    const hooks = await getHooks();
+    const api = hooks.auth?.methods?.find((m) => m.type === 'api');
+    expect(api).toBeDefined();
+    expect(api?.label).toBe('Use a project API key');
+  });
+
+  it('auth hook has a loader function', async () => {
+    const hooks = await getHooks();
+    expect(typeof hooks.auth?.loader).toBe('function');
+  });
+});
+
+describe('Plugin factory — tool.execute.before hook', () => {
+  it('closes tool capabilities when invoked', async () => {
+    const hooks = await getHooks();
+    await hooks['tool.execute.before']!(
+      { tool: 'bash', sessionID: 's1', callID: 'c1' },
+      { args: { command: 'ls', cwd: '/tmp', env: {} } }
     );
-    expect(result).toBe(msg);
+    expect(mockCloseToolCapabilities).toHaveBeenCalled();
   });
 
-  it('should intercept when model is capix/auto', async () => {
-    const catalog = [
-      { model: 'qwen2.5-coder-7b', provider: 'capix', spotPrice: 0.001, status: 'live' },
-    ];
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('trading-board')) return Promise.resolve(mockCatalogResponse(catalog));
-      if (url.includes('chat/completions')) return Promise.resolve(mockClassifyResponse('coding'));
-      return Promise.resolve(mockFetchResponse({}));
-    }) as unknown as typeof fetch;
-
-    const msg = makeMessage('Write a binary search');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    expect(result.model).toBe('qwen2.5-coder-7b');
-  });
-
-  it('should intercept when model is bare auto', async () => {
-    const catalog = [
-      { model: 'qwen2.5-coder-7b', provider: 'capix', spotPrice: 0.001, status: 'live' },
-    ];
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('trading-board')) return Promise.resolve(mockCatalogResponse(catalog));
-      if (url.includes('chat/completions')) return Promise.resolve(mockClassifyResponse('coding'));
-      return Promise.resolve(mockFetchResponse({}));
-    }) as unknown as typeof fetch;
-
-    const msg = makeMessage('Write a function');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('auto') as any);
-    expect(result.model).toBe('qwen2.5-coder-7b');
-  });
-
-  it('should return default model when no user message exists', async () => {
-    const msg: MockMessage = { messages: [] };
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-    expect(result.model).toBe('capix/supergemma-gemma3-4b');
-  });
-
-  it('should return default model when user message content is not a string', async () => {
-    const msg: MockMessage = {
-      messages: [{ role: 'user', content: 12345 as unknown as string }],
-    };
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-    expect(result.model).toBe('capix/supergemma-gemma3-4b');
-  });
-
-  it('should return default model when messages is undefined', async () => {
-    const msg: MockMessage = {};
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-    expect(result.model).toBe('capix/supergemma-gemma3-4b');
+  it('rejects bash commands not approved by the sandbox', async () => {
+    mockShouldApproveCommand.mockReturnValueOnce(false);
+    const hooks = await getHooks();
+    await expect(
+      hooks['tool.execute.before']!(
+        { tool: 'bash', sessionID: 's1', callID: 'c1' },
+        { args: { command: 'rm -rf /', cwd: '/tmp', env: {} } }
+      )
+    ).rejects.toThrow('rejected by workspace sandbox');
   });
 });
 
-describe.skip('Plugin — Private mode', () => {
-  it('should signal deploy when no private endpoint exists', async () => {
-    process.env.CAPIX_ROUTE_MODE = 'private';
-
-    // routeAuto fallback needs fetch
-    const catalog = [
-      { model: 'qwen2.5-coder-7b', provider: 'capix', spotPrice: 0.001, status: 'live' },
-    ];
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('trading-board')) return Promise.resolve(mockCatalogResponse(catalog));
-      if (url.includes('chat/completions')) return Promise.resolve(mockClassifyResponse('coding'));
-      return Promise.resolve(mockFetchResponse({}));
-    }) as unknown as typeof fetch;
-
-    const msg = makeMessage('Write code');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    expect(result._capixDeployPrivate).toBe(true);
-    expect(result.model).toBe('qwen2.5-coder-7b');
-  });
-
-  it('should route to private endpoint when one is registered', async () => {
-    process.env.CAPIX_ROUTE_MODE = 'private';
-    getSmartRouter().setPrivateEndpoint({
-      baseUrl: 'http://localhost:9999/v1',
-      apiKey: 'endpoint-key',
-      instanceId: 77,
-      modelLabel: 'capix/private-llm',
-    });
-
-    const msg = makeMessage('Write code');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    expect(result.model).toBe('capix/private-llm');
-    expect(result._capixPrivateEndpoint).toEqual({
-      baseUrl: 'http://localhost:9999/v1',
-      apiKey: 'endpoint-key',
-    });
-    expect(result._capixDeployPrivate).toBeUndefined();
+describe('Plugin factory — shell.env hook', () => {
+  it('scrubs the environment through the sandbox', async () => {
+    const hooks = await getHooks();
+    const env = { PATH: '/bin', CAPIX_TOKEN: 'secret' };
+    await hooks['shell.env']!({ cwd: '/tmp' }, { env });
+    expect(mockScrubEnvironment).toHaveBeenCalledWith(env);
   });
 });
 
-describe.skip('Plugin — Loop mode', () => {
-  it('should signal deploy in loop mode when no endpoint', async () => {
-    process.env.CAPIX_ROUTE_MODE = 'loop';
-
-    const catalog = [
-      { model: 'qwen2.5-coder-7b', provider: 'capix', spotPrice: 0.001, status: 'live' },
-    ];
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('trading-board')) return Promise.resolve(mockCatalogResponse(catalog));
-      if (url.includes('chat/completions')) return Promise.resolve(mockClassifyResponse('coding'));
-      return Promise.resolve(mockFetchResponse({}));
-    }) as unknown as typeof fetch;
-
-    const msg = makeMessage('Write code');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    expect(result._capixDeployPrivate).toBe(true);
-  });
-
-  it('should route to private endpoint in loop mode', async () => {
-    process.env.CAPIX_ROUTE_MODE = 'loop';
-    getSmartRouter().setPrivateEndpoint({
-      baseUrl: 'http://localhost:8888/v1',
-      apiKey: 'loop-key',
-      instanceId: 88,
-      modelLabel: 'capix/loop-llm',
-    });
-
-    const msg = makeMessage('Write code');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    expect(result.model).toBe('capix/loop-llm');
-    expect(result._capixPrivateEndpoint).toEqual({
-      baseUrl: 'http://localhost:8888/v1',
-      apiKey: 'loop-key',
-    });
-  });
-});
-
-describe.skip('Plugin — Error propagation', () => {
-  it('should gracefully handle fetch failures and return fallback model', async () => {
-    const catalog = [
-      { model: 'qwen2.5-coder-7b', provider: 'capix', spotPrice: 0.001, status: 'live' },
-    ];
-    let failedOnce = false;
-    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
-      if (url.includes('trading-board')) {
-        return Promise.resolve(mockCatalogResponse(catalog));
-      }
-      if (url.includes('chat/completions')) {
-        if (!failedOnce) {
-          failedOnce = true;
-          return Promise.reject(new Error('classify timeout'));
-        }
-        return Promise.resolve(mockClassifyResponse('coding'));
-      }
-      return Promise.resolve(mockFetchResponse({}));
-    }) as unknown as typeof fetch;
-
-    const msg = makeMessage('Write a function');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    // classify failed, should default to coding and still return a routed model
-    expect(result.model).toBeDefined();
-    expect(result.model).toBe('qwen2.5-coder-7b');
-  });
-
-  it('should handle total fetch failure and return fallback', async () => {
-    globalThis.fetch = vi.fn().mockImplementation(() => {
-      return Promise.reject(new Error('total network failure'));
-    }) as unknown as typeof fetch;
-
-    const msg = makeMessage('Write a function');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    // All fetches fail — should still get a fallback model
-    expect(result.model).toBe('capix/supergemma-gemma3-4b');
-  });
-
-  it('should not throw when API key is missing (graceful degradation)', async () => {
-    delete process.env.CAPIX_API_KEY;
-    const msg = makeMessage('Write a function');
-    const result = await capixSmartRoute.onMessage!(msg as any, makeContext('capix/auto') as any);
-
-    expect(result.model).toBe('capix/supergemma-gemma3-4b');
+describe('Plugin factory — dispose hook', () => {
+  it('completes without error', async () => {
+    const hooks = await getHooks();
+    await expect(hooks.dispose!()).resolves.toBeUndefined();
   });
 });

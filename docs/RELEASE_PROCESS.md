@@ -9,6 +9,7 @@ Capix Code follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
 - **PATCH** — bug fixes, dependency bumps, security patches
 
 The current version lives in:
+
 - `package.json` (`"version"` field)
 - `brand/banner.ts` (reads from `package.json`)
 
@@ -29,28 +30,32 @@ Both must always be in sync.
 
 ## CI Release Pipeline
 
-The `.github/workflows/release.yml` workflow triggers on any `v*` tag push or manual dispatch.
+The `release` job inside `.github/workflows/ci.yml` triggers on any `v*` tag
+push. It depends on both the `lint-typecheck-test` and `plugin-contract` jobs
+passing (`needs` + `if: success()`), so a red CI job can never publish.
 
 ### Steps
 
-1. **create-release** — creates a draft GitHub Release
-2. **build** — runs a matrix build across platforms:
-   - `ubuntu-latest` (linux-x64)
-   - `macos-13` (macos-x64)
-   - `macos-14` (macos-arm64)
-   - `windows-latest` (windows-x64)
+1. **Checkout & install** — checks out the repo and runs `npm ci`
+2. **Typecheck (release gate)** — `npx tsc --noEmit`
+3. **Reject launcher placeholders** — fails if the native launcher source
+   still contains stub markers (`launcher stub`, `implementation pending`,
+   `engine handoff pending`)
+4. **Build Rust launcher** — `cargo build --locked --release` (requires
+   `launcher/Cargo.lock` to be present and up to date)
+5. **Smoke test** — `launcher/target/release/capix-code doctor`
+6. **Generate SBOM** — `@cyclonedx/cyclonedx-npm` (falls back to a minimal
+   provenance file from `package-lock.json` if the tool is unavailable)
+7. **Record source commit SHA** — writes `source-commit-sha.txt`
+8. **Package source tarball** — `capix-code-source-<tag>.tar.gz` containing
+   `src/`, `packages/runtime-provider/`, `package.json`, `package-lock.json`
+9. **Generate SHA-256 checksums** — `CHECKSUMS.sha256` covering all artifacts
+10. **Create draft release** — UNSIGNED draft GitHub release with the source
+    tarball, SBOM, commit SHA, and checksums attached
 
-   Each matrix job:
-   1. Checks out the capix-code repo
-   2. Sets up Bun
-   3. Runs lint + type check + tests
-   4. Clones upstream via `scripts/bootstrap.sh`
-   5. Applies rebrand via `scripts/rebrand.sh`
-   6. Installs config via `scripts/install-config.sh`
-   7. Builds the standalone binary via `scripts/build.sh`
-   8. Uploads the artifact
-
-3. **publish** — downloads all platform artifacts and attaches them to the GitHub Release
+> **Note:** The release job runs only on `ubuntu-latest`. There is no
+> multi-platform matrix build — the artifacts are source tarballs and the
+> native launcher binary, not platform-specific standalone builds.
 
 ## Pre-release Checklist
 
