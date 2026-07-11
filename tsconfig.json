@@ -11,6 +11,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "types": ["node"],
+    "baseUrl": ".",
     "paths": {
       "@capix/contracts": ["types/capix-contracts.d.ts"]
     }
