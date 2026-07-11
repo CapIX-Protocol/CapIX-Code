@@ -11,23 +11,27 @@
  *  - Brand colors
  */
 
-export const CAPIX_BANNER = `
-  ██████╗ █████╗ ██████╗ ██████╗ ██╗   ██╗██╗███████╗██╗  ██╗
- ██╔════╝██╔══██╗██╔══██╗██╔══██╗╚██╗ ██╔╝██║██╔════╝╚██╗██╔╝
- ██║     ███████║██████╔╝██████╔╝ ╚████╔╝ ██║█████╗   ╚███╔╝
- ██║     ██╔══██║██╔══██╗██╔══██╗   ╚██╔╝  ██║██╔══╝   ██╔██╗
- ╚██████╗██║  ██║██████╔╝██║  ██║    ██║   ██║███████╗██╔╝ ██╗
-  ╚═════╝╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝    ╚═╝   ╚═╝╚══════╝╚═╝  ╚═╝
+import packageJson from "../package.json" with { type: "json" };
 
-  ◆ Route compute, inference, and agents.
-  ◆ Powered by Capix
+export const VERSION = packageJson.version;
+
+export const CAPIX_BANNER = `
+ ██████╗ █████╗ ██████╗ ██╗██╗  ██╗      ██████╗ ██████╗ ██████╗ ███████╗
+██╔════╝██╔══██╗██╔══██╗██║╚██╗██╔╝     ██╔════╝██╔═══██╗██╔══██╗██╔════╝
+██║     ███████║██████╔╝██║ ╚███╔╝      ██║     ██║   ██║██║  ██║█████╗  
+██║     ██╔══██║██╔═══╝ ██║ ██╔██╗     ██║     ██║   ██║██║  ██║██╔══╝  
+╚██████╗██║  ██║██║     ██║██╔╝ ██╗    ╚██████╗╚██████╔╝██████╔╝███████╗
+ ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝     ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
+
+  AI coding agent with smart routing.
+  Powered by Capix
 `;
 
 export const CAPIX_STATUS = {
   title: "Capix Code",
-  version: "1.0.0",
+  version: VERSION,
   brand: "Capix",
-  tagline: "Route compute, inference, and agents.",
+  tagline: "AI coding agent with smart routing.",
 };
 
 // ANSI color codes matching the brand palette
@@ -48,7 +52,7 @@ export function renderBanner(): string {
   const { accent, success, muted, reset, dim } = CAPIX_ANSI;
   const lines = CAPIX_BANNER.split("\n");
   const colored = lines.map(line => `${accent}${line}${reset}`).join("\n");
-  const tagline = `  ${success}◆${reset} ${muted}Route compute, inference, and agents.${reset}`;
+  const tagline = `  ${success}◆${reset} ${muted}AI coding agent with smart routing.${reset}`;
   const poweredBy = `  ${dim}Powered by Capix${reset}`;
   return `${colored}\n${tagline}\n${poweredBy}`;
 }

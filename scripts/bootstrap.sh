@@ -3,15 +3,18 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-OPENCODE_DIR="${OPENCODE_DIR:-$DIR/opencode}"
-OPENCODE_REF="${OPENCODE_REF:-dev}"
+CAPIX_CODE_DIR="${CAPIX_CODE_DIR:-$DIR/opencode}"
 
-if [ -d "$OPENCODE_DIR/.git" ]; then
-  echo "✓ $OPENCODE_DIR already cloned."
+# TODO: Update this SHA when upgrading upstream
+CAPIX_CODE_REF="${CAPIX_CODE_REF:-9976269ab1accfc9f9dc98a4a688c516934de422}"
+
+if [ -d "$CAPIX_CODE_DIR/.git" ]; then
+  echo "✓ $CAPIX_CODE_DIR already cloned."
   exit 0
 fi
 
-echo "▸ Cloning opencode into $OPENCODE_DIR (ref: $OPENCODE_REF)…"
-git clone --depth 1 --branch "$OPENCODE_REF" https://github.com/anomalyco/opencode.git "$OPENCODE_DIR"
+echo "▸ Cloning opencode into $CAPIX_CODE_DIR (SHA: $CAPIX_CODE_REF)…"
+git clone https://github.com/anomalyco/opencode.git "$CAPIX_CODE_DIR"
+git -C "$CAPIX_CODE_DIR" checkout "$CAPIX_CODE_REF"
 
 echo "✓ Clone complete."

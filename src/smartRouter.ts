@@ -23,6 +23,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { logger } from "./logger";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -105,7 +106,8 @@ function loadMemory(): SmartRouterMemory {
     const raw = readFileSync(MEMORY_FILE, "utf-8");
     const m = JSON.parse(raw) as SmartRouterMemory;
     return m;
-  } catch {
+  } catch (err) {
+    logger.error("loadMemory failed — using blank memory", { error: String(err) });
     return blankMemory();
   }
 }
@@ -115,8 +117,8 @@ function saveMemory(mem: SmartRouterMemory): void {
     mkdirSync(dirname(MEMORY_FILE), { recursive: true });
     mem.updatedAt = new Date().toISOString();
     writeFileSync(MEMORY_FILE, JSON.stringify(mem, null, 2), "utf-8");
-  } catch {
-    // Can't write — silent (read-only filesystem, sandbox, etc.)
+  } catch (err) {
+    logger.error("saveMemory failed — cannot persist router memory", { error: String(err) });
   }
 }
 
@@ -135,7 +137,12 @@ export class SmartRouter {
   private memory: SmartRouterMemory;
   private catalogCache: { models: LiveModel[]; at: number } | null = null;
   private classCache = new Map<string, { type: TaskType; at: number }>();
-  private activePrivateEndpoint?: { baseUrl: string; apiKey: string; instanceId: number; modelLabel: string };
+  private activePrivateEndpoint?: {
+    baseUrl: string;
+    apiKey: string;
+    instanceId: number;
+    modelLabel: string;
+  };
 
   // Catalog cache TTL + classification cache TTL
   private static CATALOG_TTL_MS = 5 * 60 * 1000;
@@ -164,16 +171,22 @@ export class SmartRouter {
 
   private async fetchCatalog(baseUrl: string, apiKey: string): Promise<LiveModel[]> {
     if (this.catalogCache && Date.now() - this.catalogCache.at < SmartRouter.CATALOG_TTL_MS) {
-      return this.catalogCache.models;
+      const cached = this.catalogCache.models;
+      logger.info("Catalog served from cache", { source: baseUrl, count: cached.length });
+      return cached;
     }
 
+    const start = Date.now();
     try {
       const res = await fetch(`${baseUrl}/api/cloud/trading-board`, {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
       const data = await res.json();
       const listings = (data?.listings || []) as Array<{
-        model: string; provider: string; spotPrice: number; status: string;
+        model: string;
+        provider: string;
+        spotPrice: number;
+        status: string;
       }>;
 
       const models: LiveModel[] = listings
@@ -186,9 +199,19 @@ export class SmartRouter {
         }));
 
       this.catalogCache = { models, at: Date.now() };
+      const durationMs = Date.now() - start;
+      logger.info("Catalog fetched", { source: baseUrl, count: models.length, durationMs });
       return models;
-    } catch {
-      return this.catalogCache?.models || [];
+    } catch (err) {
+      const durationMs = Date.now() - start;
+      const fallback = this.catalogCache?.models || [];
+      logger.error("fetchCatalog failed — using cached/empty fallback", {
+        source: baseUrl,
+        durationMs,
+        cachedCount: fallback.length,
+        error: String(err),
+      });
+      return fallback;
     }
   }
 
@@ -210,9 +233,17 @@ Only respond with one word. No punctuation.`;
   ): Promise<TaskType> {
     if (sessionId) {
       const cached = this.classCache.get(sessionId);
-      if (cached && Date.now() - cached.at < SmartRouter.CLASS_CACHE_TTL_MS) return cached.type;
+      if (cached && Date.now() - cached.at < SmartRouter.CLASS_CACHE_TTL_MS) {
+        logger.info("Classification served from cache", {
+          sessionId,
+          taskType: cached.type,
+        });
+        return cached.type;
+      }
     }
 
+    const start = Date.now();
+    const promptPreview = message.slice(0, 100);
     try {
       const res = await fetch(`${SmartRouter.CAPIX_GATEWAY}/chat/completions`, {
         method: "POST",
@@ -233,9 +264,18 @@ Only respond with one word. No punctuation.`;
       const text = data?.choices?.[0]?.message?.content?.toLowerCase().trim() || "";
       const type: TaskType = text.includes("reason") ? "reasoning" : "coding";
 
+      const durationMs = Date.now() - start;
+      logger.info("Task classified", { taskType: type, promptPreview, durationMs });
+
       if (sessionId) this.classCache.set(sessionId, { type, at: Date.now() });
       return type;
-    } catch {
+    } catch (err) {
+      const durationMs = Date.now() - start;
+      logger.warn("classify failed — defaulting to coding", {
+        promptPreview,
+        durationMs,
+        error: String(err),
+      });
       return "coding";
     }
   }
@@ -264,54 +304,65 @@ Only respond with one word. No punctuation.`;
    */
   pickBestModel(models: LiveModel[], taskType: TaskType): string | null {
     if (models.length === 0) {
-      return taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
+      const fallback = taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
+      logger.info("Catalog empty — using fallback", { taskType, fallback });
+      return fallback;
     }
 
-    const keywords = taskType === "reasoning" ? SmartRouter.REASONING_KEYWORDS : SmartRouter.CODING_KEYWORDS;
+    const keywords =
+      taskType === "reasoning" ? SmartRouter.REASONING_KEYWORDS : SmartRouter.CODING_KEYWORDS;
 
-    const scored = models.map((m) => {
-      const lower = m.model.toLowerCase();
+    const scored = models
+      .map((m) => {
+        const lower = m.model.toLowerCase();
 
-      // Skip blocked models.
-      if (this.memory.blockedModels.includes(m.model)) return null;
+        // Skip blocked models.
+        if (this.memory.blockedModels.includes(m.model)) return null;
 
-      let score = 0;
+        let score = 0;
 
-      // Keyword matching.
-      for (const kw of keywords) {
-        if (lower.includes(kw)) score += 2;
-      }
+        // Keyword matching.
+        for (const kw of keywords) {
+          if (lower.includes(kw)) score += 2;
+        }
 
-      // Learned ratings from memory.
-      const rating = this.memory.ratings[m.model]?.[taskType];
-      if (rating) {
-        // High score = user kept this model's selection (= good choice).
-        // High overrides = user rejected this model for this task (= bad choice).
-        const netScore = rating.selections - rating.overrides * 2;
-        score += netScore * 0.5;
-      }
+        // Learned ratings from memory.
+        const rating = this.memory.ratings[m.model]?.[taskType];
+        if (rating) {
+          // High score = user kept this model's selection (= good choice).
+          // High overrides = user rejected this model for this task (= bad choice).
+          const netScore = rating.selections - rating.overrides * 2;
+          score += netScore * 0.5;
+        }
 
-      // Favored models get a boost.
-      if (this.memory.favoredModels.includes(m.model)) score += 3;
+        // Favored models get a boost.
+        if (this.memory.favoredModels.includes(m.model)) score += 3;
 
-      // Preferred provider boost.
-      if (this.memory.preferredProvider && m.provider === this.memory.preferredProvider) score += 1;
+        // Preferred provider boost.
+        if (this.memory.preferredProvider && m.provider === this.memory.preferredProvider)
+          score += 1;
 
-      // Price penalty.
-      if (m.pricePer1k > 0.01) score -= 1;
-      if (m.pricePer1k > 0.05) score -= 2;
+        // Price penalty.
+        if (m.pricePer1k > 0.01) score -= 1;
+        if (m.pricePer1k > 0.05) score -= 2;
 
-      return { model: m.model, score, price: m.pricePer1k };
-    }).filter(Boolean) as Array<{ model: string; score: number; price: number }>;
+        return { model: m.model, score, price: m.pricePer1k };
+      })
+      .filter(Boolean) as Array<{ model: string; score: number; price: number }>;
 
     if (scored.length === 0) {
-      return taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
+      const fallback =
+        taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
+      logger.info("All models blocked — using fallback", { taskType, fallback });
+      return fallback;
     }
 
     // Sort: highest score first, then cheapest.
     scored.sort((a, b) => b.score - a.score || a.price - b.price);
 
-    return scored[0].model;
+    const best = scored[0].model;
+    logger.info("Model selected", { model: best, taskType, score: scored[0].score });
+    return best;
   }
 
   // ── Public routing API ───────────────────────────────────────────────────
@@ -326,25 +377,37 @@ Only respond with one word. No punctuation.`;
     baseUrl: string,
     apiKey: string,
   ): Promise<RouteResult> {
+    const start = Date.now();
     const [catalog, taskType] = await Promise.all([
       this.fetchCatalog(baseUrl, apiKey),
       this.classify(message, sessionId, apiKey),
     ]);
 
     const best = this.pickBestModel(catalog, taskType);
-    const fallback = taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
+    const fallback =
+      taskType === "reasoning" ? "capix/supergemma-gemma3-27b" : "capix/supergemma-gemma3-4b";
 
     // Record the selection in memory (for learning).
     if (best) {
       this.recordSelection(best, taskType);
     }
 
-    return {
+    const fromCache = Boolean(
+      this.catalogCache && Date.now() - this.catalogCache.at < SmartRouter.CATALOG_TTL_MS,
+    );
+    const model = best || fallback;
+    const durationMs = Date.now() - start;
+
+    logger.info("Route decision", {
       mode: "auto",
-      model: best || fallback,
+      model,
       taskType,
-      fromCache: Boolean(this.catalogCache && Date.now() - this.catalogCache.at < SmartRouter.CATALOG_TTL_MS),
-    };
+      fromCache,
+      catalogCount: catalog.length,
+      durationMs,
+    });
+
+    return { mode: "auto", model, taskType, fromCache };
   }
 
   /**
@@ -352,15 +415,31 @@ Only respond with one word. No punctuation.`;
    * If none exists, signal that one needs to be deployed.
    */
   routePrivate(): RouteResult {
+    const start = Date.now();
     if (this.activePrivateEndpoint) {
-      return {
+      const result: RouteResult = {
         mode: "private",
         model: this.activePrivateEndpoint.modelLabel,
         taskType: "coding",
         fromCache: true,
         privateEndpoint: this.activePrivateEndpoint,
       };
+      logger.info("Route decision", {
+        mode: "private",
+        model: result.model,
+        taskType: result.taskType,
+        fromCache: true,
+        durationMs: Date.now() - start,
+      });
+      return result;
     }
+    logger.info("Route decision", {
+      mode: "private",
+      model: "__NEEDS_DEPLOY__",
+      taskType: "coding",
+      fromCache: false,
+      durationMs: Date.now() - start,
+    });
     return { mode: "private", model: "__NEEDS_DEPLOY__", taskType: "coding", fromCache: false };
   }
 
@@ -368,14 +447,28 @@ Only respond with one word. No punctuation.`;
    * Route in LOOP mode — same as PRIVATE but the agent keeps building.
    */
   routeLoop(): RouteResult {
+    const start = Date.now();
     const result = this.routePrivate();
-    return { ...result, mode: "loop" };
+    result.mode = "loop";
+    logger.info("Route decision", {
+      mode: "loop",
+      model: result.model,
+      taskType: result.taskType,
+      fromCache: result.fromCache,
+      durationMs: Date.now() - start,
+    });
+    return result;
   }
 
   // ── Private endpoint lifecycle ───────────────────────────────────────────
 
   /** Called when a private LLM is deployed — registers it as the active endpoint. */
-  setPrivateEndpoint(endpoint: { baseUrl: string; apiKey: string; instanceId: number; modelLabel: string }): void {
+  setPrivateEndpoint(endpoint: {
+    baseUrl: string;
+    apiKey: string;
+    instanceId: number;
+    modelLabel: string;
+  }): void {
     this.activePrivateEndpoint = endpoint;
     this.memory.lastPrivateEndpoint = {
       baseUrl: endpoint.baseUrl,
@@ -409,7 +502,11 @@ Only respond with one word. No punctuation.`;
    * Called automatically after each routing decision.
    */
   private recordSelection(model: string, taskType: TaskType): void {
-    if (!this.memory.ratings[model]) this.memory.ratings[model] = { reasoning: { score: 0, selections: 0, overrides: 0 }, coding: { score: 0, selections: 0, overrides: 0 } };
+    if (!this.memory.ratings[model])
+      this.memory.ratings[model] = {
+        reasoning: { score: 0, selections: 0, overrides: 0 },
+        coding: { score: 0, selections: 0, overrides: 0 },
+      };
     this.memory.ratings[model][taskType].selections++;
     this.memory.ratings[model][taskType].lastUsed = new Date().toISOString();
     saveMemory(this.memory);
@@ -425,11 +522,19 @@ Only respond with one word. No punctuation.`;
    */
   recordOverride(rejectedModel: string, chosenModel: string, taskType: TaskType): void {
     // Penalize the rejected model.
-    if (!this.memory.ratings[rejectedModel]) this.memory.ratings[rejectedModel] = { reasoning: { score: 0, selections: 0, overrides: 0 }, coding: { score: 0, selections: 0, overrides: 0 } };
+    if (!this.memory.ratings[rejectedModel])
+      this.memory.ratings[rejectedModel] = {
+        reasoning: { score: 0, selections: 0, overrides: 0 },
+        coding: { score: 0, selections: 0, overrides: 0 },
+      };
     this.memory.ratings[rejectedModel][taskType].overrides++;
 
     // Boost the chosen model.
-    if (!this.memory.ratings[chosenModel]) this.memory.ratings[chosenModel] = { reasoning: { score: 0, selections: 0, overrides: 0 }, coding: { score: 0, selections: 0, overrides: 0 } };
+    if (!this.memory.ratings[chosenModel])
+      this.memory.ratings[chosenModel] = {
+        reasoning: { score: 0, selections: 0, overrides: 0 },
+        coding: { score: 0, selections: 0, overrides: 0 },
+      };
     this.memory.ratings[chosenModel][taskType].selections++;
 
     saveMemory(this.memory);
@@ -476,12 +581,17 @@ Only respond with one word. No punctuation.`;
     const m = this.memory;
     const topModels = Object.entries(m.ratings)
       .sort(([, a], [, b]) => {
-        const aScore = (a.coding.selections - a.coding.overrides * 2) + (a.reasoning.selections - a.reasoning.overrides * 2);
-        const bScore = (b.coding.selections - b.coding.overrides * 2) + (b.reasoning.selections - b.reasoning.overrides * 2);
+        const aScore =
+          a.coding.selections - a.coding.overrides * 2 + (a.reasoning.selections - a.reasoning.overrides * 2);
+        const bScore =
+          b.coding.selections - b.coding.overrides * 2 + (b.reasoning.selections - b.reasoning.overrides * 2);
         return bScore - aScore;
       })
       .slice(0, 5)
-      .map(([model, r]) => `  ${model}: coding ${r.coding.selections}× (${r.coding.overrides} overrides), reasoning ${r.reasoning.selections}× (${r.reasoning.overrides} overrides)`);
+      .map(
+        ([model, r]) =>
+          `  ${model}: coding ${r.coding.selections}× (${r.coding.overrides} overrides), reasoning ${r.reasoning.selections}× (${r.reasoning.overrides} overrides)`,
+      );
 
     const lines = [
       "Smart Router Memory:",

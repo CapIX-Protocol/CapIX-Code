@@ -1,10 +1,10 @@
 # Capix Code
 
-The CLI coding assistant for the Capix network — built-in Capix LLM provider, Covenant governance, and Dev Token rewards. Bundled inside Capix IDE, or installable standalone.
+Capix Code is a brand kit on top of [opencode](https://github.com/anomalyco/opencode) — it rebrands the upstream AI coding agent with the Capix provider pre-configured as the default, adding a Smart Router plugin, brand theming, and Capix network integration. Bundled inside Capix IDE, or installable standalone.
 
 ## About
 
-Capix Code is a full-featured AI coding agent with the Capix provider pre-configured as the default. It ships with:
+Capix Code is **not a standalone application** — it is a thin brand kit (~640 lines of original TypeScript) layered on top of the opencode AI coding agent. The `scripts/bootstrap.sh` pipeline clones upstream opencode, `scripts/rebrand.sh` applies the Capix branding, and `scripts/build.sh` compiles a standalone binary. The repo ships with:
 
 - **Capix branding** — the TUI shows the Capix ASCII art banner on launch with brand colors (neon teal `#3DCED6`, green `#14F195`), the Capix brand mark logo, and a full TUI color theme using the brand palette (deep slate-navy canvas, teal accents, green success states)
 - **Built-in Capix provider** — the `capix` provider is the default, using `@ai-sdk/openai-compatible`, pointing at the Capix OpenAI-compatible gateway. No manual config needed.
@@ -83,7 +83,7 @@ Capix Code is a complete AI coding agent built on TypeScript/Bun. The repo is a 
 Requires [Bun 1.3+](https://bun.sh).
 
 ```bash
-git clone https://github.com/Ritzky/capix-code.git
+git clone https://github.com/CapIX-Protocol/Capix-Code.git
 cd capix-code
 ./scripts/bootstrap.sh    # clones source + applies branding + installs config + theme
 ./scripts/dev.sh          # launches in dev mode (Bun)
@@ -98,9 +98,9 @@ To build a standalone binary:
 For CI/cross-platform release builds, tag a version:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
-# The Release workflow builds mac (arm64/x64), linux (x64/arm64), windows (x64)
+git tag v1.1.0
+git push origin v1.1.0
+# The Release workflow builds: linux (x64), macOS (x64/arm64), Windows (x64)
 ```
 
 ## Config
@@ -122,11 +122,19 @@ The default config (`config/defaults.json`) registers:
 
 Override anything in `~/.config/capix-code/capix-code.json` or the project-level `capix-code.json`.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, commit conventions, and PR workflow.
+
+## Security
+
+If you discover a security vulnerability, please see [SECURITY.md](SECURITY.md) for reporting instructions. **Do not open a public issue.**
+
 ## License
 
-- **Capix Code brand kit** (scripts, config, themes, brand): Apache-2.0, Copyright 2026 Capix.
+Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE) for details.
 
-See `NOTICE`.
+Copyright 2026 Capix.
 
 ## Links
 

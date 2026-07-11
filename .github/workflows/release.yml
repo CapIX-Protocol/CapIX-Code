@@ -48,13 +48,41 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
-    name: Build (linux-x64)
+    name: Build (${{ matrix.artifact }})
     needs: create-release
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: capix-code-linux-x64
+          - os: macos-13
+            artifact: capix-code-macos-x64
+          - os: macos-14
+            artifact: capix-code-macos-arm64
+          - os: windows-latest
+            artifact: capix-code-windows-x64
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout capix-code repo
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npx eslint src/
+        continue-on-error: true
+
+      - name: Test
+        run: npx vitest run
+        continue-on-error: true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -64,7 +92,7 @@ jobs:
       - name: Clone upstream source
         run: bash scripts/bootstrap.sh
         env:
-          OPENCODE_DIR: ${{ github.workspace }}/opencode
+          CAPIX_CODE_DIR: ${{ github.workspace }}/opencode
 
       - name: Install deps
         run: bun install
@@ -73,23 +101,23 @@ jobs:
       - name: Apply rebrand
         run: bash scripts/rebrand.sh
         env:
-          OPENCODE_DIR: ${{ github.workspace }}/opencode
+          CAPIX_CODE_DIR: ${{ github.workspace }}/opencode
 
       - name: Install Capix config + branding
         run: bash scripts/install-config.sh
         env:
-          OPENCODE_DIR: ${{ github.workspace }}/opencode
+          CAPIX_CODE_DIR: ${{ github.workspace }}/opencode
 
       - name: Build standalone binary
         run: bash scripts/build.sh
         env:
-          OPENCODE_DIR: ${{ github.workspace }}/opencode
+          CAPIX_CODE_DIR: ${{ github.workspace }}/opencode
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: capix-code-linux-x64
+          name: ${{ matrix.artifact }}
           path: |
             opencode/packages/opencode/dist/**/capix-code*
             opencode/packages/opencode/dist/**/opencode*

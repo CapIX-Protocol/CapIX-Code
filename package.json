@@ -1,0 +1,31 @@
+{
+  "name": "capix-code",
+  "version": "1.1.0",
+  "description": "Capix Code — AI coding agent with smart routing (brand kit on top of opencode)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "compile": "tsc --noEmit",
+    "lint": "eslint src/",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "prettier": "^3.0.0",
+    "eslint": "^9.0.0",
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,js}": ["prettier --write", "eslint --fix"],
+    "*.{json,md,yml}": ["prettier --write"]
+  }
+}

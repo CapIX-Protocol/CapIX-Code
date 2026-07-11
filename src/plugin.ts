@@ -23,7 +23,7 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
-import { SmartRouter, type RouteMode } from "./smartRouter";
+import { SmartRouter, type RouteMode, type RouteResult } from "./smartRouter";
 
 // Singleton router — persists memory across the session.
 let router: SmartRouter | null = null;

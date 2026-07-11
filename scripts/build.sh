@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # build.sh — produce packaged capix-code binaries.
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-OPENCODE_DIR="${OPENCODE_DIR:-$DIR/opencode}"
+CAPIX_CODE_DIR="${CAPIX_CODE_DIR:-$DIR/opencode}"
 
-if [ ! -d "$OPENCODE_DIR" ]; then
-  echo "✗ No $OPENCODE_DIR. Run ./scripts/bootstrap.sh first."
+if [ ! -d "$CAPIX_CODE_DIR" ]; then
+  echo "✗ No $CAPIX_CODE_DIR. Run ./scripts/bootstrap.sh first."
   exit 1
 fi
 
-cd "$OPENCODE_DIR"
+cd "$CAPIX_CODE_DIR"
 
 echo "▸ Building capix-code standalone binary…"
 bun install
@@ -22,7 +22,7 @@ fi
 
 # Build using the upstream build script.
 if [ -f "packages/opencode/script/build.ts" ]; then
-  bun run --cwd packages/opencode script/build.ts --single 2>&1 || echo "  WARN: build.ts exited non-zero"
+  bun run --cwd packages/opencode script/build.ts --single
 fi
 
 # Find the output — handle both renamed and original patterns.

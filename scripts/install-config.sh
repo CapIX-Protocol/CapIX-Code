@@ -3,7 +3,7 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
-OPENCODE_DIR="${OPENCODE_DIR:-$DIR/opencode}"
+CAPIX_CODE_DIR="${CAPIX_CODE_DIR:-$DIR/opencode}"
 CONFIG_SRC="$DIR/config/defaults.json"
 
 if [ ! -f "$CONFIG_SRC" ]; then
@@ -12,13 +12,13 @@ if [ ! -f "$CONFIG_SRC" ]; then
 fi
 
 # 1. Bundle the config into the opencode package as a default.
-DEST_DIR="$OPENCODE_DIR/packages/opencode/config"
+DEST_DIR="$CAPIX_CODE_DIR/packages/opencode/config"
 mkdir -p "$DEST_DIR"
 cp "$CONFIG_SRC" "$DEST_DIR/capix-defaults.json"
 echo "  ✓ bundled capix-defaults.json"
 
 # 2. Create the init script that writes the default config on first run.
-WRAPPER="$OPENCODE_DIR/packages/opencode/scripts/init-capix-config.ts"
+WRAPPER="$CAPIX_CODE_DIR/packages/opencode/scripts/init-capix-config.ts"
 mkdir -p "$(dirname "$WRAPPER")"
 cat > "$WRAPPER" << 'WRAPPER_EOF'
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
@@ -49,15 +49,15 @@ echo "  ✓ created init-capix-config.ts wrapper"
 
 # 3. Install the TUI theme + brand assets.
 if [ -d "$DIR/themes" ]; then
-  THEME_DEST="$OPENCODE_DIR/packages/opencode/config/themes"
+  THEME_DEST="$CAPIX_CODE_DIR/packages/opencode/config/themes"
   mkdir -p "$THEME_DEST"
   cp "$DIR/themes/capix.toml" "$THEME_DEST/capix.toml" 2>/dev/null || true
-  cp "$DIR/tui-capix.json" "$OPENCODE_DIR/packages/opencode/config/tui-capix.json" 2>/dev/null || true
+  cp "$DIR/tui-capix.json" "$CAPIX_CODE_DIR/packages/opencode/config/tui-capix.json" 2>/dev/null || true
   echo "  ✓ TUI theme installed"
 fi
 
 if [ -d "$DIR/brand" ]; then
-  BRAND_DEST="$OPENCODE_DIR/packages/opencode/config/brand"
+  BRAND_DEST="$CAPIX_CODE_DIR/packages/opencode/config/brand"
   mkdir -p "$BRAND_DEST"
   cp -R "$DIR/brand/"* "$BRAND_DEST/" 2>/dev/null || true
   echo "  ✓ brand assets installed"
