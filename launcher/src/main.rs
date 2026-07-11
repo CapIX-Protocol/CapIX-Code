@@ -128,6 +128,11 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
     let config_content = serde_json::to_string(&config)
         .map_err(|e| format!("cannot encode bundled Capix config: {e}"))?;
     let mut command = ProcessCommand::new(&engine);
+    // Strip all inherited secrets first, then inject only the freshly rotated,
+    // short-lived Capix access token into the child provider. Refresh material
+    // never leaves the native keychain boundary.
+    scrub_environment(&mut command);
+    let access = access_token()?;
     command
         .args(args)
         .env("CAPIX_CODE_BUNDLED_RUNTIME", &runtime)
@@ -144,8 +149,8 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
         .env(
             "CAPIX_INFERENCE_BASE_URL",
             "https://www.capix.network/api/v1",
-        );
-    scrub_environment(&mut command);
+        )
+        .env("CAPIX_API_KEY", access);
     let status = command
         .status()
         .map_err(|e| format!("failed to launch engine: {e}"))?;
@@ -320,6 +325,52 @@ fn api_get(path: &str) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
+    if prompt.is_empty() {
+        return Err("a prompt is required".into());
+    }
+    let token = access_token()?;
+    let request_id = format!(
+        "capix-code-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos()
+    );
+    let payload = serde_json::json!({
+        "model": "auto",
+        "messages": [{"role": "user", "content": prompt.join(" ")}],
+        "stream": false,
+        "max_tokens": 256
+    });
+    let body: serde_json::Value = runtime()?.block_on(async {
+        let response = reqwest::Client::new()
+            .post(format!("{WEB_ORIGIN}/api/v1/chat/completions"))
+            .bearer_auth(token)
+            .header("idempotency-key", request_id)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            return Err(format!("Capix inference returned {status}: {text}"));
+        }
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    })?;
+    let content = body
+        .pointer("/choices/0/message/content")
+        .and_then(|v| v.as_str())
+        .or_else(|| body.get("output_text").and_then(|v| v.as_str()))
+        .ok_or_else(|| "Capix inference response did not contain assistant content".to_string())?;
+    println!("{content}");
+    if let Some(receipt) = body.pointer("/capix/receiptId").and_then(|v| v.as_str()) {
+        eprintln!("receipt: {receipt}");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 fn unavailable(command: &str) -> Result<ExitCode, String> {
     Err(format!("`capix-code {command}` is not available in this release; use https://www.capix.network/cloud. No request was sent."))
 }
@@ -382,20 +433,7 @@ fn main() -> ExitCode {
             a.extend(cli.engine_args);
             run_engine(&root, &a)
         }
-        Command::LlmRun { prompt } => {
-            if prompt.is_empty() {
-                Err("a prompt is required".into())
-            } else {
-                run_engine(
-                    &root,
-                    &[
-                        vec!["run".into(), "--model".into(), "capix/auto".into()],
-                        prompt,
-                    ]
-                    .concat(),
-                )
-            }
-        }
+        Command::LlmRun { prompt } => llm_run(&prompt),
         Command::GpuStatus => unavailable("gpu-status"),
         Command::Account => api_get("/api/v1/me"),
         Command::Project => api_get("/api/v1/me"),
