@@ -315,7 +315,7 @@ fn access_token() -> Result<String, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string())?;
     let refresh = entry
         .get_password()
-        .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?;
+        .map_err(|_| "not signed in; run `capix-code login`".to_string())?;
     let token: TokenResponse = runtime()?.block_on(async {
         reqwest::Client::new()
             .post(format!("{WEB_ORIGIN}/oauth/token"))
@@ -333,6 +333,9 @@ fn access_token() -> Result<String, String> {
             .await
             .map_err(|e| e.to_string())
     })?;
+    // Delete the old credential before setting the new one (macOS keychain
+    // set_password fails with errSecDuplicateItem if the item already exists).
+    let _ = entry.delete_credential();
     entry
         .set_password(&token.refresh_token)
         .map_err(|e| e.to_string())?;
