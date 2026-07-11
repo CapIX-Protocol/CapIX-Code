@@ -275,7 +275,7 @@ fn access_token() -> Result<String, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string())?;
     let refresh = entry
         .get_password()
-        .map_err(|_| "not signed in; run `capix-code login`".to_string())?;
+        .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?;
     let token: TokenResponse = runtime()?.block_on(async {
         reqwest::Client::new()
             .post(format!("{WEB_ORIGIN}/oauth/token"))
