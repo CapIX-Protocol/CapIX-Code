@@ -44,16 +44,18 @@ if [ -n "$OUTPUT" ]; then
   ARTIFACT="$DIR/dist/customer"
   rm -rf "$ARTIFACT"
   mkdir -p "$ARTIFACT/bin" "$ARTIFACT/engine" "$ARTIFACT/runtime/packages" "$ARTIFACT/config"
-  cp "$OUTPUT" "$ARTIFACT/engine/capix-engine"
+  EXE_SUFFIX=""
+  case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) EXE_SUFFIX=".exe";; esac
+  cp "$OUTPUT" "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   cp -R "$DIR/src" "$ARTIFACT/runtime/src"
   cp -R "$DIR/packages/runtime-provider" "$ARTIFACT/runtime/packages/runtime-provider"
   cp "$DIR/package.json" "$DIR/package-lock.json" "$ARTIFACT/runtime/"
   cp "$DIR/config/capix-defaults.json" "$ARTIFACT/config/"
-  chmod 0755 "$ARTIFACT/engine/capix-engine"
+  chmod 0755 "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   (cd "$ARTIFACT/runtime" && npm ci --omit=dev --ignore-scripts)
   (cd "$DIR/launcher" && cargo build --locked --release)
-  cp "$DIR/launcher/target/release/capix-code" "$ARTIFACT/bin/capix-code"
-  chmod 0755 "$ARTIFACT/bin/capix-code"
+  cp "$DIR/launcher/target/release/capix-code$EXE_SUFFIX" "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
+  chmod 0755 "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
   "$DIR/scripts/assert-artifact.sh" "$ARTIFACT"
   "$DIR/scripts/assert-customer-brand.sh" "$ARTIFACT"
   echo "✓ Customer artifact staged: $ARTIFACT"

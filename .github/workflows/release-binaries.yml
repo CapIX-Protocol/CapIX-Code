@@ -1,0 +1,93 @@
+name: Release binaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Artifact version without v prefix"
+        required: true
+      release_tag:
+        description: "Existing release tag to update"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install overlay dependencies
+        run: npm ci
+      - name: Verify overlay
+        run: |
+          npm run compile
+          npm test
+      - name: Bootstrap pinned engine
+        shell: bash
+        run: |
+          bash scripts/bootstrap.sh
+          bash scripts/rebrand.sh
+          bash scripts/install-config.sh
+      - name: Build complete customer runtime
+        shell: bash
+        run: bash scripts/build.sh
+      - name: Native launcher smoke test
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = win32 ]; then
+            dist/customer/bin/capix-code.exe doctor
+          else
+            dist/customer/bin/capix-code doctor
+          fi
+      - name: Package and statically verify
+        shell: bash
+        run: bash scripts/package-customer.sh "${{ inputs.version }}" "${{ matrix.platform }}" "${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capix-code-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-artifacts/
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: Capix Code ${{ inputs.release_tag }} (UNSIGNED)
+          draft: false
+          files: artifacts/**/*
+          body: |
+            Capix Code customer binaries for macOS arm64, Linux x64 and Windows x64.
+
+            These artifacts are unsigned. Verify the adjacent SHA-256 file before use.
+            Each platform was built and smoke-tested on its native GitHub-hosted runner.
+            Source commit: `${{ github.sha }}`
