@@ -547,6 +547,105 @@ fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// Fetch `/api/v1/me` and display the project-scoped view (project id,
+/// project name, role). The `account` command shows the same endpoint but
+/// renders the raw JSON; `project` emphasises the project context.
+fn project_info() -> Result<ExitCode, String> {
+    let token = access_token()?;
+    let me: serde_json::Value = runtime()?.block_on(async {
+        let response = reqwest::Client::new()
+            .get(format!("{WEB_ORIGIN}/api/v1/me"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            return Err(format!("Capix API returned {status}: {text}"));
+        }
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    })?;
+    println!("Capix project context");
+    println!("─────────────────────");
+    let project_id = me
+        .get("project_id")
+        .or_else(|| me.pointer("/project/id"))
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "(not assigned)".to_string());
+    println!("project_id : {project_id}");
+    println!(
+        "account    : {}",
+        me.get("email")
+            .or_else(|| me.get("handle"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("(unknown)")
+    );
+    println!(
+        "role       : {}",
+        me.get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("(unknown)")
+    );
+    println!("\n(full response):");
+    let body = serde_json::to_string_pretty(&me).map_err(|e| e.to_string())?;
+    println!("{body}");
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Fetch `/api/v1/deployments` and render the `route_receipt_ids` from each
+/// deployment as a receipts listing. There is no list-all-receipts endpoint,
+/// so deployments are the source of receipt references.
+fn receipts() -> Result<ExitCode, String> {
+    let token = access_token()?;
+    let deployments: serde_json::Value = runtime()?.block_on(async {
+        let response = reqwest::Client::new()
+            .get(format!("{WEB_ORIGIN}/api/v1/deployments"))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            return Err(format!("Capix API returned {status}: {text}"));
+        }
+        serde_json::from_str(&text).map_err(|e| e.to_string())
+    })?;
+    let entries = deployments
+        .get("deployments")
+        .and_then(|v| v.as_array())
+        .or_else(|| deployments.as_array())
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+    if entries.is_empty() {
+        println!("No deployments — no route receipts.");
+        return Ok(ExitCode::SUCCESS);
+    }
+    println!("Capix route receipts");
+    println!("────────────────────");
+    let mut count = 0usize;
+    for dep in entries {
+        let dep_id = dep
+            .get("id")
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "(no id)".to_string());
+        let ids = dep.get("route_receipt_ids").and_then(|v| v.as_array());
+        if let Some(ids) = ids {
+            for rid in ids {
+                let rid_str = rid.as_str().map(|s| s.to_string()).unwrap_or_else(|| rid.to_string());
+                println!("deployment {dep_id} → receipt {rid_str}");
+                count += 1;
+            }
+        } else {
+            println!("deployment {dep_id} → (no receipts)");
+        }
+    }
+    println!("────────────────────");
+    println!("{count} receipt(s) across {} deployment(s).", entries.len());
+    Ok(ExitCode::SUCCESS)
+}
+
 fn unavailable(command: &str) -> Result<ExitCode, String> {
     Err(format!("`capix-code {command}` is not available in this release; use https://www.capix.network/cloud. No request was sent."))
 }
@@ -646,13 +745,13 @@ fn main() -> ExitCode {
             run_engine(&root, &a)
         }
         Command::LlmRun { prompt } => llm_run(&prompt),
-        Command::GpuStatus => unavailable("gpu-status"),
+        Command::GpuStatus => api_get("/api/v1/gpu"),
         Command::Account => api_get("/api/v1/me"),
-        Command::Project => api_get("/api/v1/me"),
+        Command::Project => project_info(),
         Command::Status => api_get("/api/v1/billing"),
         Command::Attach { workspace_id } => unavailable(&format!("attach {workspace_id}")),
-        Command::Operations => unavailable("operations"),
-        Command::Receipts => unavailable("receipts"),
+        Command::Operations => api_get("/api/v1/deployments"),
+        Command::Receipts => receipts(),
         Command::Usage => api_get("/api/v1/billing"),
         Command::Invoices => api_get("/api/v1/invoices"),
         Command::Auth { subcommand } => match subcommand {

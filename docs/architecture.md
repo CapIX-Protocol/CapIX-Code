@@ -2,7 +2,7 @@
 
 ## Overview
 
-Capix Code is an AI coding agent — not a standalone thin wrapper. The repo contains ~640 lines of original TypeScript (a Smart Router plugin and its plugin entry point) plus configuration, theming, and build scripts that build and package the standalone `capix-code` binary.
+Capix Code is an AI coding agent — not a standalone thin wrapper. The repo contains the Capix plugin and provider (the plugin entry point and supporting modules) plus configuration, theming, and build scripts that build and package the standalone `capix-code` binary.
 
 The original source is never committed to this repo. Instead, it is cloned at build time by `scripts/bootstrap.sh`, rebranded in-place by `scripts/rebrand.sh`, configured by `scripts/install-config.sh`, and compiled into a standalone binary by `scripts/build.sh`.
 
@@ -42,69 +42,33 @@ Copies the Capix provider config (`config/defaults.json`), TUI theme (`themes/ca
 
 Runs `bun install` in the upstream tree, then invokes the upstream `packages/capix-code/script/build.ts --single` to produce a standalone binary. The output is searched for in `packages/capix-code/dist/` and renamed to `capix-code` if the upstream still called it `opencode`.
 
-## SmartRouter Plugin
+## Plugin & Routing
 
 ### Architecture
 
 ```
-src/plugin.ts          → Plugin entry point (registers with the plugin system)
-src/smartRouter.ts     → SmartRouter class — routing logic + persistent memory
-src/logger.ts          → Structured JSON logger for observability
+src/plugin.ts           → Plugin entry point (registers provider, auth, tool/permission hooks with @opencode-ai/plugin)
+src/capix-provider.ts   → Capix provider definition + catalog discovery from the credential broker
+src/ai-sdk-provider.ts  → AI-SDK adapter wrapping the Capix provider for streaming chat completions
+src/broker.ts           → CredentialBroker — OAuth refresh, short-lived access token vending, API-key registration
+src/sandbox.ts          → WorkspaceSandbox — command validation, env scrubbing, capability closing
+src/native-bridge.ts    → Native bridge between the launcher keyring and the in-process CredentialBroker
+src/logger.ts           → Structured JSON logger for observability
 ```
 
-The `capixSmartRoute` plugin (in `src/plugin.ts`) hooks into the message pipeline via the `onMessage` lifecycle hook. When the active model is `capix/auto`, it intercepts the message and delegates to `SmartRouter` to pick the best model for the task.
+The `plugin` factory (in `src/plugin.ts`) is the real OpenCode plugin contract (`(input, options?) => Promise<Hooks>`). It registers the `capix` and `capix/auto` provider hooks, an `auth` hook bridging browser-code+PKCE OAuth to `CredentialBroker`, a `tool.execute.before` hook that validates commands against the sandbox and closes broker capabilities, a `shell.env` scrubber, a `permission.ask` enforcer, and a `dispose` hook that revokes the session-only broker.
 
-### SmartRouter Internals
+### Server-Authoritative Routing
 
-**Memory hierarchy:**
+Routing **is server-authoritative**: there is intentionally **no client-side router**, prompt classifier, provider scorer, or persisted "smart router" memory on the device. The previous `capixSmartRoute` `onMessage` hook and the `SmartRouter` class have been removed.
 
-1. **Short-term (in-memory, per process):**
-   - Catalog cache — fetched from the Capix trading board API, cached for 5 minutes
-   - Classification cache — per session, cached for 1 minute
+When the active model is `capix/auto`:
 
-2. **Long-term (persisted to disk):**
-   - Path: `~/.config/capix-code/smart-router-memory.json` (platform-specific)
-   - Contents: learned model ratings, blocked models, favored models, preferred provider, last private endpoint
-   - Loaded on construction — the router is "born with memory"
+1. The plugin reuses the same provider hook and catalog as `capix`; no client-side interception occurs.
+2. The Capix gateway resolves `auto` to a concrete stable model id per request and returns the decision in the `capix.route` SSE event streamed back to the engine.
+3. The client simply forwards the request and renders the routed model selection from the server response.
 
-**Scoring formula (`pickBestModel`):**
-
-Each candidate model receives a composite score:
-
-| Factor                                      | Impact            |
-| ------------------------------------------- | ----------------- |
-| Keyword match (reasoning/coding keywords)   | +2 per match      |
-| Favored model                               | +3                |
-| Preferred provider match                    | +1                |
-| Price > $0.01/1k                            | -1                |
-| Price > $0.05/1k                            | -2                |
-| Learned rating (selections - overrides * 2) | ×0.5              |
-| Blocked model                               | excluded entirely |
-
-Models are sorted by score (descending) then price (ascending). The top model wins. If no models are available, a hardcoded fallback is used.
-
-### Routing Modes
-
-Controlled by `CAPIX_ROUTE_MODE` environment variable.
-
-| Mode             | Behavior                                                                                                                                           |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auto` (default) | Classifies the task (reasoning vs coding), fetches the live model catalog, scores models using keywords + learned memory, routes to the best match |
-| `private`        | Uses a deployed private LLM endpoint. If none exists, signals `_capixDeployPrivate` for the MCP server to deploy one                               |
-| `loop`           | Same as `private` but the agent continues building until the task is complete                                                                      |
-
-### Classification
-
-The classifier sends the first 500 chars of the user's message to `capix/supergemma-gemma3-4b` on the Capix gateway with a 3-second timeout. It responds with "reasoning" or "coding". Results are cached per session for 1 minute. On failure (timeout, network error), it defaults to "coding".
-
-### Learning
-
-When a user manually overrides the router's choice and picks a different model:
-
-1. The rejected model's `overrides` count is incremented (penalty)
-2. The chosen model's `selections` count is incremented (boost)
-
-These ratings persist to disk and influence future routing decisions. Users can also explicitly `blockModel` or `favorModel` to control routing permanently.
+This keeps model selection, capacity, and pricing logic centralized on the Capix network — clients never re-score, reclassify, or rewrite base URLs locally.
 
 ## Config
 
