@@ -19,6 +19,12 @@ cd "$CAPIX_CODE_DIR"
 echo "▸ Building capix-code standalone binary…"
 "$BUN" install
 
+# The embedded engine otherwise falls back to a timestamped 0.0.0 development
+# identifier. Stamp it with the immutable Capix Code package version so the TUI,
+# API metadata and diagnostics all report the customer release.
+CAPIX_RELEASE_VERSION="${CAPIX_CODE_VERSION:-$(node -p 'require(process.argv[1]).version' "$DIR/package.json")}"
+export OPENCODE_VERSION="$CAPIX_RELEASE_VERSION"
+
 # Write default config if the init script exists.
 if [ -f "packages/capix-code/scripts/init-capix-config.ts" ]; then
   "$BUN" run packages/capix-code/scripts/init-capix-config.ts 2>/dev/null || true
@@ -49,10 +55,13 @@ if [ -n "$OUTPUT" ]; then
   cp "$OUTPUT" "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   cp -R "$DIR/src" "$ARTIFACT/runtime/src"
   cp -R "$DIR/packages/runtime-provider" "$ARTIFACT/runtime/packages/runtime-provider"
-  cp "$DIR/package.json" "$DIR/package-lock.json" "$ARTIFACT/runtime/"
+  cp "$DIR/config/runtime-package.json" "$ARTIFACT/runtime/package.json"
   cp "$DIR/config/capix-defaults.json" "$DIR/config/defaults.json" "$ARTIFACT/config/"
+  cp -R "$DIR/commands" "$ARTIFACT/commands"
   chmod 0755 "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
-  (cd "$ARTIFACT/runtime" && npm ci --omit=dev --ignore-scripts)
+  # Install from the dedicated runtime manifest. The outer npm package has
+  # platform selectors which do not belong inside the embedded runtime.
+  (cd "$ARTIFACT/runtime" && npm install --omit=dev --ignore-scripts)
   (cd "$DIR/launcher" && cargo build --locked --release)
   cp "$DIR/launcher/target/release/capix-code$EXE_SUFFIX" "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
   chmod 0755 "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
