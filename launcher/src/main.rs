@@ -224,14 +224,14 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-1.2.3` (package.json version baked at compile time)
+/// 2. `capix-code-1.2.4` (package.json version baked at compile time)
 ///
 /// The launcher cannot call `git` at runtime, so this is a compile-time
 /// constant fallback. The env-var override lets release pipelines stamp
 /// the exact `capix-code-{version}-{git_sha}` identity they shipped.
 fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-1.2.3".to_string())
+        .unwrap_or_else(|_| "capix-code-1.2.4".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
@@ -321,6 +321,14 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
         }
     }
     config["provider"]["capix"]["models"] = serde_json::Value::Object(engine_models);
+    let provider_entry = runtime_dir.join("packages/runtime-provider/src/index.ts");
+    let provider_path = provider_entry.to_string_lossy().replace('\\', "/");
+    let provider_url = if cfg!(windows) {
+        format!("file:///{}", provider_path)
+    } else {
+        format!("file://{}", provider_path)
+    };
+    config["provider"]["capix"]["npm"] = serde_json::json!(provider_url);
     config["enabled_providers"] = serde_json::json!(["capix"]);
     config["model"] = serde_json::json!("capix/auto");
     config["plugin"] = serde_json::json!([
