@@ -224,14 +224,14 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-1.2.1` (package.json version baked at compile time)
+/// 2. `capix-code-1.2.3` (package.json version baked at compile time)
 ///
 /// The launcher cannot call `git` at runtime, so this is a compile-time
 /// constant fallback. The env-var override lets release pipelines stamp
 /// the exact `capix-code-{version}-{git_sha}` identity they shipped.
 fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-1.2.1".to_string())
+        .unwrap_or_else(|_| "capix-code-1.2.3".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
@@ -307,8 +307,12 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
                 .get("contextWindow")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(32768);
+            // Provider model keys are relative to `capix/`. Keeping the
+            // canonical `capix/auto` id here creates a duplicate beside the
+            // built-in `auto` entry in the model picker.
+            let engine_id = id.strip_prefix("capix/").unwrap_or(id);
             engine_models.insert(
-                id.to_string(),
+                engine_id.to_string(),
                 serde_json::json!({
                     "name": format!("Capix · {label}"),
                     "limit": {"context": context, "output": context.min(32768)}

@@ -1,6 +1,6 @@
 {
   "name": "capix-code",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Capix Code — AI coding agent with smart routing",
   "license": "Apache-2.0",
   "type": "module",
@@ -55,10 +55,10 @@
     ]
   },
   "optionalDependencies": {
-    "@capix-code/darwin-arm64": "1.2.2",
-    "@capix-code/darwin-x64": "1.2.2",
-    "@capix-code/linux-arm64": "1.2.2",
-    "@capix-code/linux-x64": "1.2.2",
-    "@capix-code/windows-x64": "1.2.2"
+    "@capix-code/darwin-arm64": "1.2.3",
+    "@capix-code/darwin-x64": "1.2.3",
+    "@capix-code/linux-arm64": "1.2.3",
+    "@capix-code/linux-x64": "1.2.3",
+    "@capix-code/windows-x64": "1.2.3"
   }
 }

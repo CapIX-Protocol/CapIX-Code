@@ -1,11 +1,9 @@
 {
   "provider": {
     "capix": {
-      "npm": "@ai-sdk/openai-compatible",
+      "npm": "@capix/runtime-provider",
       "name": "Capix",
       "options": {
-        "baseURL": "https://www.capix.network/api/v1",
-        "apiKey": "{env:CAPIX_API_KEY}",
         "headers": {
           "X-Capix-Source": "capix-code"
         }

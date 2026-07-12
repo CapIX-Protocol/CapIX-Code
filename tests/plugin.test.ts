@@ -56,8 +56,8 @@ async function getHooks(options?: Record<string, unknown>): Promise<Hooks> {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('Plugin constants', () => {
-  it('CAPIX_PLUGIN_VERSION is "1.2.1"', () => {
-    expect(CAPIX_PLUGIN_VERSION).toBe('1.2.1');
+  it('CAPIX_PLUGIN_VERSION is "1.2.3"', () => {
+    expect(CAPIX_PLUGIN_VERSION).toBe('1.2.3');
   });
 
   it('CAPIX_ACP_VERSION is "1"', () => {
