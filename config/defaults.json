@@ -55,5 +55,88 @@
   },
   "share": "manual",
   "autoupdate": false,
-  "plugin": ["./src/plugin.ts"]
+  "plugin": ["./src/plugin.ts"],
+  "command": {
+    "plan": {
+      "description": "Create a research-first implementation plan",
+      "model": "capix/auto",
+      "template": "file://commands/plan.md"
+    },
+    "agents": {
+      "description": "List active agents, their trust levels, generation, and status",
+      "template": "file://commands/agents.md"
+    },
+    "delegate": {
+      "description": "Delegate a bounded task to a specialist agent",
+      "model": "capix/auto",
+      "subtask": true,
+      "template": "file://commands/delegate.md"
+    },
+    "skills": {
+      "description": "Browse the skill registry",
+      "template": "file://commands/skills.md"
+    },
+    "covenant": {
+      "description": "Show the current Project Covenant and active rules",
+      "template": "file://commands/covenant.md"
+    },
+    "memory": {
+      "description": "Search memory — show recent memory nodes by type",
+      "template": "file://commands/memory.md"
+    },
+    "remember": {
+      "description": "Write a memory node — persist a decision, fact, constraint, or observation",
+      "template": "file://commands/remember.md"
+    },
+    "forget": {
+      "description": "Mark a memory node as superseded",
+      "template": "file://commands/forget.md"
+    },
+    "graph": {
+      "description": "Query the knowledge graph — nodes and relationships",
+      "template": "file://commands/graph.md"
+    },
+    "decisions": {
+      "description": "List recent decisions from memory — alternatives, evidence, trade-offs",
+      "template": "file://commands/decisions.md"
+    },
+    "checkpoint": {
+      "description": "Create a verified checkpoint — repo state, tests, plan, agents, infra, costs",
+      "template": "file://commands/checkpoint.md"
+    },
+    "review": {
+      "description": "Run an adversarial code review",
+      "model": "capix/auto",
+      "template": "file://commands/review.md"
+    },
+    "verify": {
+      "description": "Run verification checks — build, type, lint, test, security, diff",
+      "template": "file://commands/verify.md"
+    },
+    "handoff": {
+      "description": "Create an agent handoff / exit report",
+      "model": "capix/auto",
+      "template": "file://commands/handoff.md"
+    },
+    "context": {
+      "description": "Show the current context budget and what was retrieved and why",
+      "template": "file://commands/context.md"
+    },
+    "compact": {
+      "description": "Compact the current session context — preserve critical constraints",
+      "template": "file://commands/compact.md"
+    },
+    "deploy": {
+      "description": "Deploy infrastructure via Capix MCP — quote, approve, provision",
+      "template": "file://commands/deploy.md"
+    },
+    "cleanup": {
+      "description": "Clean up task resources — destroy infra, reconcile, capture billing",
+      "template": "file://commands/cleanup.md"
+    },
+    "receipts": {
+      "description": "List work receipts — useful-work evidence and anchoring status",
+      "template": "file://commands/receipts.md"
+    }
+  }
 }

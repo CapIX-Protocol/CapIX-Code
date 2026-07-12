@@ -53,3 +53,21 @@ export type {
 
 export { CAPIX_ERROR_CODES, CapixAgentError } from './contracts.js';
 export type { CapixProblemDetail, CapixErrorCode, ClientMeta, RuntimeInfo } from './contracts.js';
+
+// ── Intelligence event contracts (plans, agents, memory, checkpoints, receipts)
+export type {
+  Unsubscribe,
+  IntelligenceEventCallback,
+  IntelligenceEvents,
+  IntelligenceAwareRuntime,
+  MemoryNodeType,
+  AgentTrustLevel,
+  VerificationGateStatus,
+  ReceiptKind,
+  ReceiptOutcome,
+  PlanCreatedEvent,
+  AgentSpawnedEvent,
+  MemoryWrittenEvent,
+  CheckpointCreatedEvent,
+  ReceiptCreatedEvent,
+} from './intelligence.js';
