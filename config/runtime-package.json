@@ -1,0 +1,12 @@
+{
+  "name": "@capix/code-runtime",
+  "version": "1.1.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/provider": "3.0.8",
+    "@capix/runtime-provider": "file:packages/runtime-provider",
+    "@opencode-ai/plugin": "1.17.18",
+    "@opencode-ai/sdk": "1.17.18"
+  }
+}
