@@ -93,6 +93,55 @@ jobs:
           fi
 
   # ────────────────────────────────────────────────────────────────────
+  # Windows smoke test — verifies the Rust launcher builds and `doctor`
+  # passes on Windows. Only tests the native launcher, not the Bun engine
+  # build (which requires cross-compilation). Hard failure — no
+  # continue-on-error.
+  # ────────────────────────────────────────────────────────────────────
+  smoke-test:
+    name: Windows smoke test
+    runs-on: windows-latest
+    continue-on-error: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Require locked native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f launcher/Cargo.lock || {
+            echo "::error::launcher/Cargo.lock is missing; reproducible Windows build is blocked."
+            exit 1
+          }
+
+      - name: Build native launcher
+        working-directory: launcher
+        run: cargo build --locked --release
+
+      - name: Stage runtime files for doctor
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="launcher/target/release"
+          mkdir -p "$root/runtime/src" "$root/config" "$root/engine"
+          mkdir -p "$root/runtime/node_modules/@capix/runtime-provider"
+          cp src/plugin.ts src/native-bridge.ts src/capix-provider.ts \
+             src/broker.ts src/sandbox.ts src/ai-sdk-provider.ts \
+             "$root/runtime/src/"
+          cp config/capix-defaults.json "$root/config/"
+          cp packages/runtime-provider/package.json \
+             "$root/runtime/node_modules/@capix/runtime-provider/"
+          touch "$root/engine/capix-engine.exe"
+
+      - name: Smoke test native launcher
+        shell: bash
+        run: launcher/target/release/capix-code.exe doctor
+
+  # ────────────────────────────────────────────────────────────────────
   # Release — on tag push ONLY. Requires ALL other jobs to pass.
   # Uses if: success() so a red job can NEVER publish.
   # Generates SBOM, SHA-256 checksums, source commit provenance.
