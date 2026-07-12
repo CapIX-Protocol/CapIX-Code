@@ -121,17 +121,29 @@ export interface CapixStreamInput {
 /** A Capix catalog model as returned by GET /v1/models (stable server IDs). */
 export interface CapixCatalogModel {
   id: string;
-  name: string;
-  capabilities: {
-    toolCall: boolean;
-    reasoning: boolean;
-    attachment: boolean;
-    modalities: { input: string[]; output: string[] };
-  };
+  name?: string;
+  label?: string;
+  capabilities:
+    | string[]
+    | {
+        toolCall: boolean;
+        reasoning: boolean;
+        attachment: boolean;
+        modalities: { input: string[]; output: string[] };
+      };
   contextWindow: number;
-  maxOutput: number;
-  pricing: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
-  status: 'alpha' | 'beta' | 'active' | 'deprecated';
+  maxOutput?: number;
+  maxModelLen?: number;
+  pricing: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    inputPerMillionTokens?: number;
+    outputPerMillionTokens?: number;
+  };
+  status?: 'alpha' | 'beta' | 'active' | 'deprecated';
+  available?: boolean;
   privacyClass?: string;
   regions?: string[];
 }
@@ -324,7 +336,7 @@ export async function* stream(
   options: CapixStreamOptions
 ): AsyncGenerator<CapixProviderChunk, void, void> {
   const requestId = newRequestId();
-  const url = `${inferenceBase()}/v1/inference/chat/completions`;
+  const url = `${inferenceBase()}/inference/chat/completions`;
   const requestBody: InferenceRequest = {
     model: input.model,
     messages: input.messages,
@@ -412,7 +424,7 @@ export async function* stream(
 /** Fetch the model catalog from GET /v1/models (stable server IDs). */
 export async function models(): Promise<Record<string, Model>> {
   const access = await broker().getAccessToken();
-  const res = await fetch(`${apiBase()}/v1/models`, {
+  const res = await fetch(`${apiBase()}/models`, {
     headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
   });
   if (!res.ok) {
@@ -421,7 +433,10 @@ export async function models(): Promise<Record<string, Model>> {
   const catalog = (await res.json()) as { models: CapixCatalogModel[] };
   const out: Record<string, Model> = {};
   for (const m of catalog.models) {
-    out[m.id] = toSdkModel(m, 'capix');
+    // Provider model keys are relative to `capix/`; preserve the canonical
+    // gateway model id on the model itself so inference receives it unchanged.
+    const key = m.id.startsWith('capix/') ? m.id.slice('capix/'.length) : m.id;
+    out[key] = toSdkModel(m, 'capix');
   }
   // `capix/auto` is always advertised and delegates model selection to the server.
   if (!out['auto']) {
@@ -433,7 +448,7 @@ export async function models(): Promise<Record<string, Model>> {
 /** Return the raw catalog list for display (TUI model picker). */
 export async function list(): Promise<CapixCatalogModel[]> {
   const access = await broker().getAccessToken();
-  const res = await fetch(`${apiBase()}/v1/models`, {
+  const res = await fetch(`${apiBase()}/models`, {
     headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
   });
   if (!res.ok) {
@@ -445,39 +460,48 @@ export async function list(): Promise<CapixCatalogModel[]> {
 
 /** Convert a catalog model into the OpenCode SDK Model shape. */
 function toSdkModel(m: CapixCatalogModel, providerID: string): Model {
+  const capabilityNames = Array.isArray(m.capabilities) ? m.capabilities : [];
+  const legacyCapabilities = Array.isArray(m.capabilities) ? undefined : m.capabilities;
+  const supports = (name: string) => capabilityNames.includes(name);
+  const toolCall = legacyCapabilities?.toolCall ?? supports('tool-calls');
+  const reasoning = legacyCapabilities?.reasoning ?? supports('extended-thinking');
+  const attachment = legacyCapabilities?.attachment ?? supports('vision');
+  const inputModalities =
+    legacyCapabilities?.modalities.input ?? (attachment ? ['text', 'image'] : ['text']);
+  const outputModalities = legacyCapabilities?.modalities.output ?? ['text'];
   return {
     id: m.id,
     providerID,
     api: {
       id: m.id,
-      url: `${inferenceBase()}/v1/inference`,
+      url: `${inferenceBase()}/inference`,
       npm: '@capix/runtime-provider',
     },
-    name: m.name,
+    name: m.label ?? m.name ?? m.id,
     capabilities: {
       temperature: true,
-      reasoning: m.capabilities.reasoning,
-      attachment: m.capabilities.attachment,
-      toolcall: m.capabilities.toolCall,
+      reasoning,
+      attachment,
+      toolcall: toolCall,
       input: {
         text: true,
-        audio: m.capabilities.modalities.input.includes('audio'),
-        image: m.capabilities.modalities.input.includes('image'),
-        video: m.capabilities.modalities.input.includes('video'),
-        pdf: m.capabilities.modalities.input.includes('pdf'),
+        audio: inputModalities.includes('audio'),
+        image: inputModalities.includes('image'),
+        video: inputModalities.includes('video'),
+        pdf: inputModalities.includes('pdf'),
       },
       output: {
         text: true,
-        audio: m.capabilities.modalities.output.includes('audio'),
-        image: m.capabilities.modalities.output.includes('image'),
-        video: m.capabilities.modalities.output.includes('video'),
-        pdf: m.capabilities.modalities.output.includes('pdf'),
+        audio: outputModalities.includes('audio'),
+        image: outputModalities.includes('image'),
+        video: outputModalities.includes('video'),
+        pdf: outputModalities.includes('pdf'),
       },
       interleaved: false,
     },
     cost: {
-      input: m.pricing.input,
-      output: m.pricing.output,
+      input: m.pricing.input ?? m.pricing.inputPerMillionTokens ?? 0,
+      output: m.pricing.output ?? m.pricing.outputPerMillionTokens ?? 0,
       cache: {
         read: m.pricing.cacheRead ?? 0,
         write: m.pricing.cacheWrite ?? 0,
@@ -485,9 +509,9 @@ function toSdkModel(m: CapixCatalogModel, providerID: string): Model {
     },
     limit: {
       context: m.contextWindow,
-      output: m.maxOutput,
+      output: m.maxOutput ?? m.maxModelLen ?? 8192,
     },
-    status: m.status,
+    status: m.status ?? (m.available === false ? 'alpha' : 'active'),
     options: {},
     headers: {},
     release_date: new Date(0).toISOString(),
@@ -501,7 +525,7 @@ function toSdkAutoModel(): Model {
     providerID: 'capix',
     api: {
       id: 'auto',
-      url: `${inferenceBase()}/v1/inference`,
+      url: `${inferenceBase()}/inference`,
       npm: '@capix/runtime-provider',
     },
     name: 'Capix Auto (server-authoritative routing)',
