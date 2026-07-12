@@ -174,8 +174,8 @@ jobs:
       - name: Reject launcher placeholders
         run: |
           set -euo pipefail
-          if grep -nE 'launcher stub|implementation pending|engine handoff pending' launcher/src/main.rs; then
-            echo "::error::The native launcher is not customer-executable. Binary release is blocked."
+          if grep -nE 'launcher stub|implementation pending|engine handoff pending|TODO\(verify\)|unimplemented!|todo!|FIXME\(merkle\)|FIXME\(proof\)|FIXME\(receipt\)' launcher/src/main.rs launcher/src/merkle_verify.rs launcher/src/format.rs 2>/dev/null; then
+            echo "::error::The native launcher contains placeholder/stub markers in the settlement/proof/receipt paths. Binary release is blocked."
             exit 1
           fi
 

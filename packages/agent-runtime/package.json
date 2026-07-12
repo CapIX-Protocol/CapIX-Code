@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./events": "./src/events.ts",
     "./session": "./src/session.ts",
-    "./contracts": "./src/contracts.ts"
+    "./contracts": "./src/contracts.ts",
+    "./intelligence": "./src/intelligence.ts"
   },
   "dependencies": {},
   "devDependencies": {

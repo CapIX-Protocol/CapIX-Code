@@ -85,10 +85,10 @@ echo "  ✓ display names updated"
 # identifiers and import contracts remain untouched.
 cp "$DIR/assets/tui-logo.ts" "$CAPIX_CODE_DIR/packages/tui/src/logo.ts"
 CLI_UI="$CAPIX_CODE_DIR/packages/capix-code/src/cli/ui.ts"
-perl -0pi.bak -e 's/const wordmark = \[.*?\]\n/const wordmark = [\n  `  ██████╗ █████╗ ██████╗ ██╗██╗  ██╗`,\n  ` ██╔════╝██╔══██╗██╔══██╗██║╚██╗██╔╝`,\n  ` ██║     ███████║██████╔╝██║ ╚███╔╝ `,\n  ` ╚██████╗██╔══██║██╔═══╝ ██║ ██╔██╗ `,\n  `  ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝`,\n  `                 CAPIX CODE`,\n]\n/s' "$CLI_UI"
+perl -0pi.bak -e 's/const wordmark = \[.*?\]\n/const wordmark = [\n  `  ██████╗ █████╗ ██████╗ ██╗██╗  ██╗     ██████╗ ██████╗ ██████╗ ███████╗`,\n  ` ██╔════╝██╔══██╗██╔══██╗██║╚██╗██╔╝    ██╔════╝██╔═══██╗██╔══██╗██╔════╝`,\n  ` ██║     ███████║██████╔╝██║ ╚███╔╝     ██║     ██║   ██║██║  ██║█████╗  `,\n  ` ██║     ██╔══██║██╔═══╝ ██║ ██╔██╗     ██║     ██║   ██║██║  ██║██╔══╝  `,\n  ` ╚██████╗██║  ██║██║     ██║██╔╝ ██╗    ╚██████╗╚██████╔╝██████╔╝███████╗`,\n  `  ╚═════╝╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝     ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝`,\n  `                                CAPIX CODE`,\n]\n/s' "$CLI_UI"
 rm -f "$CLI_UI.bak"
 TUI_PRESENTATION="$CAPIX_CODE_DIR/packages/tui/src/util/presentation.ts"
-perl -0pi.bak -e 's/const logo = \{.*?\}\n/const logo = {\n  left: ["  ██████╗ █████╗ ", " ██╔════╝██╔══██╗", " ██║     ███████║", " ╚██████╗██╔══██║", "  ╚═════╝╚═╝  ╚═╝"],\n  right: ["██████╗ ██╗██╗  ██╗", "██╔══██╗██║╚██╗██╔╝", "██████╔╝██║ ╚███╔╝ ", "██╔═══╝ ██║ ██╔██╗ ", "╚═╝     ╚═╝╚═╝  ╚═╝"],\n}\n/s; s/opencode -s/capix-code -s/g' "$TUI_PRESENTATION"
+perl -0pi.bak -e 's/const logo = \{.*?\}\n/const logo = {\n  left: [" ██████╗  █████╗ ██████╗ ██╗██╗  ██╗", "██╔════╝ ██╔══██╗██╔══██╗██║╚██╗██╔╝", "██║      ███████║██████╔╝██║ ╚███╔╝ ", "██║      ██╔══██║██╔═══╝ ██║ ██╔██╗ ", "╚██████╗ ██║  ██║██║     ██║██╔╝ ██╗", " ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝"],\n  right: [" ██████╗ ██████╗ ██████╗ ███████╗", "██╔════╝██╔═══██╗██╔══██╗██╔════╝", "██║     ██║   ██║██║  ██║█████╗  ", "██║     ██║   ██║██║  ██║██╔══╝  ", "╚██████╗╚██████╔╝██████╔╝███████╗", " ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝"],\n}\n/s; s/opencode -s/capix-code -s/g' "$TUI_PRESENTATION"
 rm -f "$TUI_PRESENTATION.bak"
 PRESENTATION_FILES=(
   packages/tui/src/app.tsx

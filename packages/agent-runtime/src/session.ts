@@ -78,6 +78,31 @@ export interface ReceiptInfo {
   timestamp: string;
 }
 
+/** Settlement epoch status (root anchors the CPX ledger). */
+export interface SettlementStatus {
+  epoch: string;
+  root: string;
+  cluster: string;
+  paused: boolean;
+}
+
+/** A single settlement epoch record. */
+export interface SettlementEpoch {
+  epoch: string;
+  root: string;
+  cluster: string;
+  startedAt: string;
+  finalizedAt?: string;
+  leafCount: string;
+  paused: boolean;
+}
+
+/** Local receipt verification result (proof recomputed client-side). */
+export interface ReceiptVerification {
+  verified: boolean;
+  root: string;
+}
+
 /**
  * The shared agent runtime contract. Both Capix Code TUI and CapixIDE
  * implement this interface (or a client of it) to provide:
@@ -115,6 +140,17 @@ export interface AgentRuntime {
 
   getUsage(sessionId: string): Promise<UsageSummary>;
   getReceipts(sessionId: string): Promise<ReceiptInfo[]>;
+
+  /** Fetch the current settlement epoch status (CPX ledger root). */
+  getSettlementStatus(sessionId: string): Promise<SettlementStatus>;
+  /**
+   * Verify a receipt's Merkle proof locally. The proof package is fetched
+   * from the API but the cryptographic check (recompute leaf hash, walk
+   * sibling path, compare root) is performed client-side.
+   */
+  verifyReceipt(receiptId: string): Promise<ReceiptVerification>;
+  /** Fetch a specific settlement epoch by number. */
+  getEpoch(sessionId: string, epoch: bigint): Promise<SettlementEpoch>;
 
   attachWorkspace(sessionId: string, workspaceRoot: string): Promise<void>;
 

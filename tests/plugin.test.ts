@@ -35,6 +35,7 @@ vi.mock('../src/sandbox', () => ({
 // Mock capix-provider — both statically and dynamically imported by plugin.ts.
 const mockProviderHook = { id: 'capix', models: vi.fn() };
 vi.mock('../src/capix-provider', () => ({
+  CapixHttpError: class CapixHttpError extends Error {},
   capixProvider: { name: 'capix' },
   createCapixProviderHook: vi.fn(() => mockProviderHook),
   capixAuthLoader: vi.fn(),
@@ -55,8 +56,8 @@ async function getHooks(options?: Record<string, unknown>): Promise<Hooks> {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('Plugin constants', () => {
-  it('CAPIX_PLUGIN_VERSION is "1.1.0"', () => {
-    expect(CAPIX_PLUGIN_VERSION).toBe('1.1.0');
+  it('CAPIX_PLUGIN_VERSION is "1.2.1"', () => {
+    expect(CAPIX_PLUGIN_VERSION).toBe('1.2.1');
   });
 
   it('CAPIX_ACP_VERSION is "1"', () => {
@@ -81,10 +82,10 @@ describe('Plugin factory — Hooks structure', () => {
     expect(typeof hooks.dispose).toBe('function');
   });
 
-  it('does not register chat.message, chat.params, or chat.headers hooks', async () => {
+  it('registers only the intelligence context chat.params hook', async () => {
     const hooks = await getHooks();
     expect(hooks['chat.message']).toBeUndefined();
-    expect(hooks['chat.params']).toBeUndefined();
+    expect(typeof hooks['chat.params']).toBe('function');
     expect(hooks['chat.headers']).toBeUndefined();
   });
 });

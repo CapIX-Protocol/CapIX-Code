@@ -154,6 +154,23 @@ export interface SessionCompletedEvent extends AgentEventBase {
   totalCostMinor: string;
 }
 
+/** Current settlement epoch status (root anchors the CPX ledger). */
+export interface SettlementStatusEvent extends AgentEventBase {
+  type: 'settlement.status';
+  epoch: string;
+  root: string;
+  cluster: string;
+  paused: boolean;
+}
+
+/** Result of a local Merkle proof verification (no API trust for the check). */
+export interface ProofVerifiedEvent extends AgentEventBase {
+  type: 'proof.verified';
+  receiptId: string;
+  verified: boolean;
+  root: string;
+}
+
 export type AgentEvent =
   | SessionStartedEvent
   | TurnStartedEvent
@@ -171,6 +188,8 @@ export type AgentEvent =
   | CheckpointCreatedEvent
   | TurnCompletedEvent
   | TurnFailedEvent
-  | SessionCompletedEvent;
+  | SessionCompletedEvent
+  | SettlementStatusEvent
+  | ProofVerifiedEvent;
 
 export type AgentEventType = AgentEvent['type'];

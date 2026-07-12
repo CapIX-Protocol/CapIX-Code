@@ -34,4 +34,13 @@ for file in "${SURFACES[@]}"; do
     exit 1
   fi
 done
+grep -Fq 'CAPIX CODE' "$ROOT/packages/capix-code/src/cli/ui.ts" || {
+  echo "✗ Capix Code startup wordmark is missing"
+  exit 1
+}
+grep -Fq 'export const identity' "$ROOT/packages/tui/src/logo.ts" &&
+  grep -Fq 'CAPIX CODE' "$ROOT/packages/tui/src/logo.ts" || {
+  echo "✗ Capix Code TUI identity is missing"
+  exit 1
+}
 echo "✓ prepared engine customer presentation sources are Capix-only"
