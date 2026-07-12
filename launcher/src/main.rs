@@ -56,6 +56,19 @@ enum Command {
     Receipts,
     Usage,
     Invoices,
+    /// Authentication management
+    Auth {
+        #[command(subcommand)]
+        subcommand: AuthCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuthCommand {
+    /// Show current authentication status
+    Status,
+    /// Clear all credentials and force re-authentication
+    Reset,
 }
 
 fn install_root() -> Result<PathBuf, String> {
@@ -538,6 +551,34 @@ fn unavailable(command: &str) -> Result<ExitCode, String> {
     Err(format!("`capix-code {command}` is not available in this release; use https://www.capix.network/cloud. No request was sent."))
 }
 
+fn auth_status() -> Result<ExitCode, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string());
+    match entry.and_then(|e| e.get_password().map_err(|e| e.to_string())) {
+        Ok(_) => {
+            println!("Signed in to Capix Code.");
+            if let Err(e) = api_get("/api/v1/me") {
+                eprintln!("capix-code: could not fetch account info: {e}");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(_) => {
+            println!("Not signed in. Run `capix-code login` to authenticate.");
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+fn auth_reset() -> Result<ExitCode, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string());
+    let _ = entry.and_then(|e| e.delete_credential().map_err(|e| e.to_string()));
+    if let Ok(home) = std::env::var("HOME") {
+        let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
+        let _ = std::fs::remove_file(&cred_file);
+    }
+    println!("Capix Code credentials cleared. Run `capix-code login` to authenticate.");
+    Ok(ExitCode::SUCCESS)
+}
+
 fn doctor(root: &Path) -> Result<(), String> {
     let required = [
         engine_path(root),
@@ -614,6 +655,10 @@ fn main() -> ExitCode {
         Command::Receipts => unavailable("receipts"),
         Command::Usage => api_get("/api/v1/billing"),
         Command::Invoices => api_get("/api/v1/invoices"),
+        Command::Auth { subcommand } => match subcommand {
+            AuthCommand::Status => auth_status(),
+            AuthCommand::Reset => auth_reset(),
+        },
     };
     match result {
         Ok(code) => code,
