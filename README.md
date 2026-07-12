@@ -7,7 +7,7 @@ Capix Code is an AI coding agent with the Capix provider pre-configured as the d
 Capix Code is a complete AI coding agent built on TypeScript/Bun (~640 lines of original TypeScript for the Smart Router plugin, plus configuration, theming, and build scripts). It ships with:
 
 - **Capix branding** — the TUI shows the Capix ASCII art banner on launch with brand colors (neon teal `#3DCED6`, green `#14F195`), the Capix brand mark logo, and a full TUI color theme using the brand palette (deep slate-navy canvas, teal accents, green success states)
-- **Built-in Capix provider** — the `capix` provider is the default, using `@ai-sdk/openai-compatible`, pointing at the Capix OpenAI-compatible gateway. No manual config needed.
+- **Built-in Capix provider** — the native Capix runtime provider is the default and routes authenticated requests through the canonical Capix inference gateway. No manual API configuration is needed.
 - **Smart Route (auto mode)** — when using `capix/auto` (the default), a mini-AI classifier analyzes each request and routes it to the best model for the task: a strong reasoning model (Llama 3.3 70B, Gemma 3 27B) for planning/analysis, and a strong coding model (Qwen2.5-Coder, CodeGemma) for writing code. The classifier runs on `capix/supergemma-gemma3-4b` via the Capix gateway (~200ms, cached per session) — imperceptible to the user. Results are cached per session so similar consecutive requests skip the classifier entirely.
 - **Capix model catalog** — 8 pre-listed models including auto-routing (cheapest), Gemma 3 variants (27B/12B/4B), CodeGemma 7B, Qwen2.5-Coder 7B/32B, and Llama 3.3 70B
 - **Auto-connect** — Capix IDE sets `CAPIX_BASE_URL` and `CAPIX_API_KEY` env vars in launched terminals from its SecretStorage, so `capix-code` works with zero additional setup
@@ -16,23 +16,9 @@ Capix Code is a complete AI coding agent built on TypeScript/Bun (~640 lines of 
 
 ## Install
 
-### Standalone
-
-```bash
-curl -fsSL https://capix.network/install-code.sh | bash
-```
-
-Or with npm:
-
-```bash
-npm i -g capix-code
-capix-code doctor
-```
-
-The small `capix-code` package selects a verified platform package automatically:
-macOS Apple silicon/x64, Linux arm64/x64, or Windows x64. Platform packages ship
-the complete native runtime and are installed through npm optional dependencies.
-Installation never downloads or executes an unverified `latest` binary.
+Use **[INSTALL.md](INSTALL.md)** for exact checksum and installation commands for
+macOS arm64/x64, Linux arm64/x64, and Windows x64. Customer builds are unsigned;
+always compare the archive against its adjacent SHA-256 file before installation.
 
 ### Bundled in Capix IDE
 
@@ -41,21 +27,9 @@ Capix IDE ships `capix-code` in its PATH. When you click "Capix: Launch Capix Co
 ## Quick start
 
 ```bash
-# Using the Capix gateway (auto-routes to the cheapest model):
-export CAPIX_BASE_URL=https://capix.network/api/v1
-export CAPIX_API_KEY=cpk_...        # from capix.network → API Keys
-# CAPIX_MODEL defaults to "capix/auto" (cheapest route)
-
-capix-code
-```
-
-Or with a self-deployed LLM endpoint:
-
-```bash
-export CAPIX_BASE_URL=http://94.23.x.x:12345/v1     # from /cloud/llm deploy result
-export CAPIX_API_KEY=cpxllm_...                      # from the deploy response
-export CAPIX_MODEL=capix/supergemma-gemma3-27b       # the model you deployed
-
+capix-code login
+capix-code doctor
+capix-code llm-run "Reply with exactly: CAPIX_REMOTE_OK"
 capix-code
 ```
 
