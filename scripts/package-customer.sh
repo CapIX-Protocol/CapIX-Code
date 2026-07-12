@@ -24,4 +24,5 @@ else
   shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
 fi
 printf '%s\n' "$(git -C "$ROOT" rev-parse HEAD)" > "$OUT/$NAME.source-commit.txt"
+node "$ROOT/scripts/write-release-entry.mjs" "$VERSION" "$PLATFORM" "$ARCH" "$ARCHIVE"
 echo "Verified release artifact: $ARCHIVE"

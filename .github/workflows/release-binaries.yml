@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Artifact version without v prefix"
+        description: 'Artifact version without v prefix'
         required: true
       release_tag:
-        description: "Existing release tag to update"
+        description: 'Existing release tag to update'
         required: true
 
 permissions:
@@ -23,22 +23,33 @@ jobs:
           - os: macos-latest
             platform: darwin
             arch: arm64
+            npm-platform: darwin
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+            npm-platform: darwin
           - os: ubuntu-latest
             platform: linux
             arch: x64
+            npm-platform: linux
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            npm-platform: linux
           - os: windows-latest
             platform: win32
             arch: x64
+            npm-platform: windows
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.14"
+          bun-version: '1.3.14'
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux credential-store build dependencies
         if: runner.os == 'Linux'
@@ -69,14 +80,37 @@ jobs:
       - name: Package and statically verify
         shell: bash
         run: bash scripts/package-customer.sh "${{ inputs.version }}" "${{ matrix.platform }}" "${{ matrix.arch }}"
+      - name: Package npm native runtime
+        shell: bash
+        run: |
+          node scripts/prepare-npm-platform.mjs "${{ matrix.npm-platform }}" "${{ matrix.arch }}" dist/customer npm-platform
+          cd "npm-platform/${{ matrix.npm-platform }}-${{ matrix.arch }}"
+          npm pack --pack-destination "$GITHUB_WORKSPACE/release-artifacts"
       - uses: actions/upload-artifact@v4
         with:
           name: capix-code-${{ matrix.platform }}-${{ matrix.arch }}
           path: release-artifacts/
           retention-days: 30
 
+  package-npm-meta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Pack cross-platform npm launcher
+        run: |
+          mkdir -p release-artifacts
+          npm pack --pack-destination release-artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capix-code-npm-meta
+          path: release-artifacts/
+          retention-days: 30
+
   publish:
-    needs: build
+    needs: [build, package-npm-meta]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -89,7 +123,8 @@ jobs:
           draft: false
           files: artifacts/**/*
           body: |
-            Capix Code customer binaries for macOS arm64, Linux x64 and Windows x64.
+            Capix Code customer binaries for macOS arm64/x64, Linux arm64/x64 and Windows x64,
+            plus npm platform packages and the cross-platform `capix-code` launcher package.
 
             These artifacts are unsigned. Verify the adjacent SHA-256 file before use.
             Each platform was built and smoke-tested on its native GitHub-hosted runner.

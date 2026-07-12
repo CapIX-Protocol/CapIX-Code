@@ -26,7 +26,13 @@ Or with npm:
 
 ```bash
 npm i -g capix-code
+capix-code doctor
 ```
+
+The small `capix-code` package selects a verified platform package automatically:
+macOS Apple silicon/x64, Linux arm64/x64, or Windows x64. Platform packages ship
+the complete native runtime and are installed through npm optional dependencies.
+Installation never downloads or executes an unverified `latest` binary.
 
 ### Bundled in Capix IDE
 
@@ -98,8 +104,8 @@ To build a standalone binary:
 For CI/cross-platform release builds, tag a version:
 
 ```bash
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.2.1
+git push origin v1.2.1
 # The CI release job builds the native launcher binary (ubuntu-latest) and
 # packages a source tarball with SHA-256 checksums and SBOM (UNSIGNED draft).
 ```
