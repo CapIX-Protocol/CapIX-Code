@@ -31,7 +31,7 @@ writeFileSync(
   `${JSON.stringify(
     {
       name: `@capix-code/${id}`,
-      version: '1.2.1',
+      version: '1.2.2',
       description: `Capix Code native runtime for ${id}`,
       license: 'Apache-2.0',
       os: [platform === 'windows' ? 'win32' : platform],
