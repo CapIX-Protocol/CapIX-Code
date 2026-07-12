@@ -7,6 +7,7 @@ required=(
   "bin/capix-code$SUFFIX"
   "engine/capix-engine$SUFFIX"
   runtime/src/plugin.ts
+  runtime/src/native-bridge.ts
   runtime/src/broker.ts
   runtime/src/sandbox.ts
   runtime/src/capix-provider.ts

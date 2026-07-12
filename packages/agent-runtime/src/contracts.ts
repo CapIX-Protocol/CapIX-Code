@@ -22,7 +22,7 @@ export interface CapixProblemDetail {
 
 export class CapixAgentError extends Error {
   constructor(public readonly problem: CapixProblemDetail) {
-    super(problem.message || problem.title);
+    super(problem.detail || problem.title);
     this.name = 'CapixAgentError';
   }
 }

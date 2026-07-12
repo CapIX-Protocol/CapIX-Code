@@ -122,6 +122,20 @@ fn scrub_environment(command: &mut ProcessCommand) {
     }
 }
 
+/// Compute the release identity for this build.
+///
+/// Precedence:
+/// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
+/// 2. `capix-code-1.1.0` (package.json version baked at compile time)
+///
+/// The launcher cannot call `git` at runtime, so this is a compile-time
+/// constant fallback. The env-var override lets release pipelines stamp
+/// the exact `capix-code-{version}-{git_sha}` identity they shipped.
+fn release_id() -> String {
+    std::env::var("CAPIX_RELEASE_ID")
+        .unwrap_or_else(|_| "capix-code-1.1.0".to_string())
+}
+
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
     let engine = engine_path(root);
     if !engine.is_file() {
@@ -240,7 +254,9 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
             "CAPIX_INFERENCE_BASE_URL",
             "https://www.capix.network/api/v1",
         )
-        .env("CAPIX_API_KEY", access);
+        .env("CAPIX_API_KEY", access)
+        .env("CAPIX_RELEASE_ID", release_id())
+        .env("CAPIX_CODE_RELEASE_ID", release_id());
     let status = command
         .status()
         .map_err(|e| format!("failed to launch engine: {e}"))?;
@@ -526,6 +542,8 @@ fn doctor(root: &Path) -> Result<(), String> {
     let required = [
         engine_path(root),
         root.join("runtime/src/plugin.ts"),
+        root.join("runtime/src/native-bridge.ts"),
+        root.join("runtime/src/capix-provider.ts"),
         root.join("runtime/src/broker.ts"),
         root.join("runtime/src/sandbox.ts"),
         root.join("runtime/src/ai-sdk-provider.ts"),

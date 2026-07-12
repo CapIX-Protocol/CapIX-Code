@@ -34,7 +34,7 @@ import { CredentialBroker } from './broker.js';
 import { WorkspaceSandbox, type SandboxProfile } from './sandbox.js';
 import { logger } from './logger.js';
 
-export const CAPIX_PLUGIN_VERSION = '0.1.0';
+export const CAPIX_PLUGIN_VERSION = '1.1.0';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -88,7 +88,8 @@ export const plugin: Plugin = async (
 ): Promise<Hooks> => {
   const opts = (options ?? {}) as CapixPluginOptions;
 
-  const releaseId = opts.releaseId ?? 'dev';
+  const releaseId =
+    opts.releaseId ?? process.env.CAPIX_RELEASE_ID ?? process.env.CAPIX_CODE_RELEASE_ID ?? 'dev';
   const clientVersion = opts.clientVersion ?? CAPIX_PLUGIN_VERSION;
   const meta = {
     releaseId,
