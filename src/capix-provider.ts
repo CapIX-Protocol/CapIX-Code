@@ -164,17 +164,27 @@ export class CapixHttpError extends Error {
   }
 }
 
-/** Lazily-injected broker. The launcher wires the real broker; tests inject a stub. */
-let brokerAccessor: (() => CredentialBroker) | null = null;
+/**
+ * Lazily-resolved broker.
+ *
+ * The AI SDK loads provider packages before it finishes loading plugins.  A
+ * nullable accessor therefore made first-run model discovery depend on module
+ * evaluation order and could fail with "accessor not registered" even though
+ * the native credential bridge was already available.  The default remains
+ * the real CredentialBroker; plugin startup and tests can still replace the
+ * accessor explicitly.
+ */
+let defaultBroker: CredentialBroker | null = null;
+let brokerAccessor: () => CredentialBroker = () => {
+  if (!defaultBroker) defaultBroker = new CredentialBroker();
+  return defaultBroker;
+};
 
 export function setBrokerAccessor(accessor: () => CredentialBroker): void {
   brokerAccessor = accessor;
 }
 
 function broker(): CredentialBroker {
-  if (!brokerAccessor) {
-    throw new Error('capix-provider: CredentialBroker accessor not registered');
-  }
   return brokerAccessor();
 }
 
