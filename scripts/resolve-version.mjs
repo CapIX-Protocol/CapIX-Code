@@ -19,6 +19,8 @@
  * Prints the resolved immutable tag to stdout.
  */
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const SEMVER_TAG = /^v\d+\.\d+\.\d+$/;
 
@@ -116,7 +118,7 @@ async function main() {
   process.exit(2);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch((err) => {
     console.error(err?.message ? `ERROR: ${err.message}` : String(err));
     process.exit(2);

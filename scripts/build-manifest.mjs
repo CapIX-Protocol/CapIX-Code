@@ -20,7 +20,8 @@
  * `latest` resolver and by validate-manifest.
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const REQUIRED_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'];
 const SEMVER_TAG = /^v\d+\.\d+\.\d+$/;
@@ -208,7 +209,7 @@ function main() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     main();
   } catch (err) {

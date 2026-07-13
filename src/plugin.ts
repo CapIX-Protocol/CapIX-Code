@@ -35,7 +35,7 @@ import { WorkspaceSandbox, type SandboxProfile } from './sandbox.js';
 import { logger } from './logger.js';
 import * as intelligence from './intelligence-client.js';
 
-export const CAPIX_PLUGIN_VERSION = '1.2.5';
+export const CAPIX_PLUGIN_VERSION = '1.2.6';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */

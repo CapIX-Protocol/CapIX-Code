@@ -17,7 +17,9 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}-${{ matrix.arch }}
     strategy:
-      fail-fast: true
+      # Let every native runner report its own result. The publish job still
+      # requires the entire matrix, so a single failure prevents any release.
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest

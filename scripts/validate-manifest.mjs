@@ -12,6 +12,8 @@
  * Exit 0 = valid, 1 = invalid (message on stderr).
  */
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const SEMVER_TAG = /^v\d+\.\d+\.\d+$/;
 const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -160,6 +162,6 @@ function main() {
 }
 
 // Run as CLI only when invoked directly, not when imported by tests.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main();
 }
