@@ -38,6 +38,7 @@ import type {
 
 import { CredentialBroker } from './broker.js';
 import { logger } from './logger.js';
+import { buildInferenceUrl, buildModelsUrl, buildUrl, validateBaseUrl } from './url-builder.js';
 
 /** Default production origins. Overridable by config; never by env secret. */
 export const CAPIX_API_BASE = 'https://www.capix.network/api/v1';
@@ -196,11 +197,25 @@ export function setInferenceBaseResolver(resolver: () => string): void {
 }
 
 function inferenceBase(): string {
-  return inferenceBaseResolver().replace(/\/$/, '');
+  const raw = inferenceBaseResolver();
+  const validation = validateBaseUrl(raw);
+  if (!validation.ok) {
+    throw new Error(
+      `Capix inference base URL is invalid: ${validation.error}. Set CAPIX_INFERENCE_BASE to an absolute https URL.`
+    );
+  }
+  return raw.replace(/\/+$/, '');
 }
 
 function apiBase(): string {
-  return CAPIX_API_BASE.replace(/\/$/, '');
+  const raw = CAPIX_API_BASE;
+  const validation = validateBaseUrl(raw);
+  if (!validation.ok) {
+    throw new Error(
+      `Capix API base URL is invalid: ${validation.error}. Set CAPIX_API_BASE to an absolute https URL.`
+    );
+  }
+  return raw.replace(/\/+$/, '');
 }
 
 /** Attach client/release metadata as headers (no secrets). */
@@ -346,7 +361,7 @@ export async function* stream(
   options: CapixStreamOptions
 ): AsyncGenerator<CapixProviderChunk, void, void> {
   const requestId = newRequestId();
-  const url = `${inferenceBase()}/inference/chat/completions`;
+  const url = buildInferenceUrl(inferenceBase());
   const requestBody: InferenceRequest = {
     model: input.model,
     messages: input.messages,
@@ -434,7 +449,7 @@ export async function* stream(
 /** Fetch the model catalog from GET /v1/models (stable server IDs). */
 export async function models(): Promise<Record<string, Model>> {
   const access = await broker().getAccessToken();
-  const res = await fetch(`${apiBase()}/models`, {
+  const res = await fetch(buildModelsUrl(apiBase()), {
     headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
   });
   if (!res.ok) {
@@ -458,7 +473,7 @@ export async function models(): Promise<Record<string, Model>> {
 /** Return the raw catalog list for display (TUI model picker). */
 export async function list(): Promise<CapixCatalogModel[]> {
   const access = await broker().getAccessToken();
-  const res = await fetch(`${apiBase()}/models`, {
+  const res = await fetch(buildModelsUrl(apiBase()), {
     headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
   });
   if (!res.ok) {
@@ -484,7 +499,7 @@ function toSdkModel(m: CapixCatalogModel, providerID: string): Model {
     providerID,
     api: {
       id: m.id,
-      url: `${inferenceBase()}/inference`,
+      url: buildUrl(inferenceBase(), '/inference'),
       npm: '@capix/runtime-provider',
     },
     name: m.label ?? m.name ?? m.id,
@@ -535,7 +550,7 @@ function toSdkAutoModel(): Model {
     providerID: 'capix',
     api: {
       id: 'auto',
-      url: `${inferenceBase()}/inference`,
+      url: buildUrl(inferenceBase(), '/inference'),
       npm: '@capix/runtime-provider',
     },
     name: 'Capix Auto (server-authoritative routing)',
