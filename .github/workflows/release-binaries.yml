@@ -113,15 +113,55 @@ jobs:
     needs: [build, package-npm-meta]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Materialize immutable release manifest and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          find artifacts -type f -exec cp {} release-artifacts/ \;
+
+          node scripts/build-manifest.mjs \
+            --entries release-artifacts \
+            --base-url https://github.com/CapIX-Protocol/CapIX-Code/releases/download \
+            --stable-version "${{ inputs.release_tag }}" \
+            --source-sha "${{ github.sha }}" \
+            --launcher-version "${{ inputs.version }}" \
+            --opencode-version 1.17.18 \
+            --plugin-version "${{ inputs.version }}" \
+            --provider-version "${{ inputs.version }}" \
+            --out release-artifacts/release-manifest.json \
+            --require-all
+          node scripts/validate-manifest.mjs release-artifacts/release-manifest.json
+
+          cp NOTICE release-artifacts/NOTICE
+          npm sbom --sbom-format spdx > release-artifacts/sbom.spdx.json
+          jq -n \
+            --arg tag "${{ inputs.release_tag }}" \
+            --arg sourceSha "${{ github.sha }}" \
+            --arg workflow "${{ github.workflow }}" \
+            --arg runId "${{ github.run_id }}" \
+            '{schemaVersion:1, product:"capix-code", tag:$tag, sourceSha:$sourceSha, builder:"github-actions", workflow:$workflow, runId:$runId, unsigned:true}' \
+            > release-artifacts/provenance.json
+
+          find release-artifacts -maxdepth 1 -type f ! -name '*.sha256' -print0 | while IFS= read -r -d '' file; do
+            digest="$(sha256sum "$file" | awk '{print $1}')"
+            printf '%s  %s\n' "$digest" "$(basename "$file")" > "$file.sha256"
+          done
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.release_tag }}
           name: Capix Code ${{ inputs.release_tag }} (UNSIGNED)
           draft: false
-          files: artifacts/**/*
+          files: release-artifacts/*
           body: |
             Capix Code customer binaries for macOS arm64/x64, Linux arm64/x64 and Windows x64,
             plus npm platform packages and the cross-platform `capix-code` launcher package.

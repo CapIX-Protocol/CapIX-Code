@@ -53,7 +53,9 @@ function fakeEntry(
   };
 }
 
-function materializedManifest(plats = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64']) {
+function materializedManifest(
+  plats = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']
+) {
   const platforms: Record<string, unknown> = {};
   for (const p of plats) {
     platforms[p] = {
@@ -125,7 +127,7 @@ describe('manifest: materialized manifest is publishable', () => {
   it('builds a real manifest from per-platform release.json entries', () => {
     const dir = tempDir();
     mkdirSync(dir, { recursive: true });
-    for (const p of ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64']) {
+    for (const p of ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']) {
       writeJson(join(dir, `capix-code-1.2.4-${p}.release.json`), fakeEntry(p));
     }
     const out = join(dir, 'release-manifest.json');
@@ -157,6 +159,7 @@ describe('manifest: materialized manifest is publishable', () => {
     expect(Object.keys(built.platforms).sort()).toEqual([
       'darwin-arm64',
       'darwin-x64',
+      'linux-arm64',
       'linux-x64',
       'win32-x64',
     ]);

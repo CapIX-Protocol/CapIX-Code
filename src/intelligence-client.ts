@@ -490,8 +490,8 @@ function meta(): IntelligenceClientMeta {
   if (!metaAccessor) {
     return {
       client: 'capix-code',
-      clientVersion: '0.0.0',
-      pluginVersion: '0.0.0',
+      clientVersion: '1.2.5',
+      pluginVersion: '1.2.5',
       releaseId: 'dev',
     };
   }

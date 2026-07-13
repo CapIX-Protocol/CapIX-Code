@@ -11,7 +11,7 @@ Never continue when a downloaded artifact does not match its adjacent SHA-256 fi
 ## Versioning
 
 Versions are immutable `vMAJOR.MINOR.PATCH` tags. The commands below pin Capix
-Code `v1.1.0`, the newest public release that currently has attached customer
+Code `v1.2.5`, the current customer release with attached customer
 artifacts and adjacent checksums. Do not substitute a newer tag unless its
 release page contains the exact archive and checksum filenames used below.
 
@@ -19,7 +19,7 @@ The Capix Code shell installer resolves `latest` to an immutable tag by setting
 `CAPIX_STABLE_VERSION` before download, rather than trusting mutable content:
 
 ```bash
-CAPIX_STABLE_VERSION=v1.1.0 bash scripts/install.sh latest
+CAPIX_STABLE_VERSION=v1.2.5 bash scripts/install.sh latest
 ```
 
 ## macOS
@@ -65,7 +65,7 @@ IDE_ARCH=x64
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.1.0
+CODE_VERSION=v1.2.5
 CODE_ARCH=arm64
 CODE_NAME="capix-code-${CODE_VERSION#v}-darwin-${CODE_ARCH}-unsigned"
 CODE_URL="https://github.com/CapIX-Protocol/CapIX-Code/releases/download/${CODE_VERSION}"
@@ -138,7 +138,7 @@ capixide
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.1.0
+CODE_VERSION=v1.2.5
 case "$(uname -m)" in
   x86_64) CODE_ARCH=x64 ;;
   aarch64|arm64) CODE_ARCH=arm64 ;;
@@ -209,7 +209,7 @@ The build is unsigned. If SmartScreen appears, select **More info**, verify the 
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$CodeVersion = "v1.1.0"
+$CodeVersion = "v1.2.5"
 $CodeName = "capix-code-$($CodeVersion.TrimStart('v'))-win32-x64-unsigned"
 $CodeUrl = "https://github.com/CapIX-Protocol/CapIX-Code/releases/download/$CodeVersion"
 $Download = Join-Path $env:USERPROFILE "Downloads"

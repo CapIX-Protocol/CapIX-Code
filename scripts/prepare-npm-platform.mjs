@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const [platform, arch, source = 'dist/customer', destination = 'npm-platform'] =
   process.argv.slice(2);
@@ -18,7 +19,7 @@ if (!supported.has(id)) {
   process.exit(2);
 }
 
-const root = resolve(new URL('..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const artifact = resolve(root, source);
 const output = resolve(root, destination, id);
 const isWindows = process.platform === 'win32';
@@ -44,7 +45,7 @@ writeFileSync(
   `${JSON.stringify(
     {
       name: `@capix-code/${id}`,
-      version: '1.2.2',
+      version: '1.2.5',
       description: `Capix Code native runtime for ${id}`,
       license: 'Apache-2.0',
       os: [platform === 'windows' ? 'win32' : platform],

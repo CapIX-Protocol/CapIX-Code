@@ -22,7 +22,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
-const REQUIRED_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'];
+const REQUIRED_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'];
 const SEMVER_TAG = /^v\d+\.\d+\.\d+$/;
 const SHA1 = /^[0-9a-f]{40}$/;
 const SHA256 = /^[0-9a-f]{64}$/;

@@ -23,4 +23,8 @@ done
 test -x "$ROOT/engine/capix-engine$SUFFIX" || { echo "✗ bundled engine is not executable"; exit 1; }
 test -x "$ROOT/bin/capix-code$SUFFIX" || { echo "✗ native launcher is not executable"; exit 1; }
 grep -q '"name": "@capix/runtime-provider"' "$ROOT/runtime/packages/runtime-provider/package.json"
+grep -q '"model": "{env:CAPIX_MODEL:capix/auto}"' "$ROOT/config/defaults.json"
+grep -q 'SuperGemma' "$ROOT/config/defaults.json"
+grep -q '/oauth/authorize' "$ROOT/runtime/src/broker.ts"
+grep -q '/oauth/token' "$ROOT/runtime/src/broker.ts"
 echo "✓ artifact contains pinned engine, plugin, broker, sandbox and runtime provider"

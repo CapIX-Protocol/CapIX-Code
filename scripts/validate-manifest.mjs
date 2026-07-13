@@ -18,7 +18,7 @@ const SEMVER = /^\d+\.\d+\.\d+$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
 const ISO8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
-const REQUIRED_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'win32-x64'];
+const REQUIRED_PLATFORMS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64'];
 
 /** Deep scan: any string field equal to "TEMPLATE" is a release blocker. */
 export function findTemplatePlaceholders(value, path = '$') {

@@ -251,14 +251,14 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-1.2.4` (package.json version baked at compile time)
+/// 2. `capix-code-1.2.5` (package.json version baked at compile time)
 ///
 /// The launcher cannot call `git` at runtime, so this is a compile-time
 /// constant fallback. The env-var override lets release pipelines stamp
 /// the exact `capix-code-{version}-{git_sha}` identity they shipped.
 fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-1.2.4".to_string())
+        .unwrap_or_else(|_| "capix-code-1.2.5".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
@@ -279,7 +279,7 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
     scrub_environment(&mut command);
     let access = access_token()?;
     let canonical = runtime()?.block_on(async {
-        let client = reqwest::Client::new();
+        let client = http_client()?;
         let models_response = client
             .get(format!("{WEB_ORIGIN}/api/v1/models"))
             .bearer_auth(&access)
@@ -414,6 +414,17 @@ fn runtime() -> Result<tokio::runtime::Runtime, String> {
     tokio::runtime::Runtime::new().map_err(|e| format!("cannot start secure network runtime: {e}"))
 }
 
+/// Build the bounded HTTPS client used by every customer-facing API path.
+/// Commands must fail clearly when the network is unavailable; they must never
+/// leave a terminal or release smoke test waiting indefinitely.
+fn http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("cannot initialize secure HTTP client: {e}"))
+}
+
 fn open_browser(url: &str) -> Result<(), String> {
     let status = if cfg!(target_os = "macos") {
         ProcessCommand::new("open").arg(url).status()
@@ -493,7 +504,7 @@ fn login() -> Result<ExitCode, String> {
     }
     let _ = stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<h1>Capix Code connected</h1><p>You can return to your terminal.</p>");
     let token: TokenResponse = runtime()?.block_on(async {
-        reqwest::Client::new()
+        http_client()?
             .post(format!("{WEB_ORIGIN}/oauth/token"))
             .form(&[
                 ("grant_type", "authorization_code"),
@@ -550,7 +561,7 @@ fn access_token() -> Result<String, String> {
         .get_password()
         .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?;
     let token_result: Result<TokenResponse, String> = runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .post(format!("{WEB_ORIGIN}/oauth/token"))
             .form(&[
                 ("grant_type", "refresh_token"),
@@ -607,7 +618,7 @@ fn access_token() -> Result<String, String> {
 fn api_get(path: &str) -> Result<ExitCode, String> {
     let token = access_token()?;
     let body = runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .get(format!("{WEB_ORIGIN}{path}"))
             .bearer_auth(token)
             .send()
@@ -629,7 +640,7 @@ fn deploy_llm(model: &str, quote_id: &str) -> Result<ExitCode, String> {
     let token = access_token()?;
     let idempotency_key = format!("capix-code-deploy-{}", uuid());
     let body = runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .post(format!("{WEB_ORIGIN}/api/v1/llm/deploy"))
             .bearer_auth(token)
             .header("idempotency-key", &idempotency_key)
@@ -662,7 +673,7 @@ fn destroy(id: &str) -> Result<ExitCode, String> {
         } else {
             format!("{WEB_ORIGIN}/api/v1/deployments/{}", id)
         };
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .delete(&endpoint)
             .bearer_auth(token)
             .header("idempotency-key", &idempotency_key)
@@ -706,7 +717,7 @@ fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
         "max_tokens": 256
     });
     let body: serde_json::Value = runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .post(format!("{WEB_ORIGIN}/api/v1/chat/completions"))
             .bearer_auth(token)
             .header("idempotency-key", request_id)
@@ -739,7 +750,7 @@ fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
 fn project_info() -> Result<ExitCode, String> {
     let token = access_token()?;
     let me: serde_json::Value = runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .get(format!("{WEB_ORIGIN}/api/v1/me"))
             .bearer_auth(&token)
             .send()
@@ -785,7 +796,7 @@ fn project_info() -> Result<ExitCode, String> {
 fn receipts() -> Result<ExitCode, String> {
     let token = access_token()?;
     let deployments: serde_json::Value = runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .get(format!("{WEB_ORIGIN}/api/v1/deployments"))
             .bearer_auth(&token)
             .send()
@@ -862,7 +873,7 @@ fn solana_cluster() -> &'static str {
 fn api_get_json(path: &str) -> Result<serde_json::Value, String> {
     let token = access_token()?;
     runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .get(format!("{WEB_ORIGIN}{path}"))
             .bearer_auth(token)
             .send()
@@ -1347,7 +1358,7 @@ fn quote(prompt: &[String], asset: Option<&str>, model: Option<&str>) -> Result<
         payload["model"] = serde_json::json!(model);
     }
     let body: serde_json::Value = runtime()?.block_on(async {
-        let response = reqwest::Client::new()
+        let response = http_client()?
             .post(format!("{WEB_ORIGIN}/api/v1/quotes"))
             .bearer_auth(&token)
             .header("idempotency-key", &request_id)
