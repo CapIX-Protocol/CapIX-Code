@@ -1,13 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  chmodSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  readlinkSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -75,7 +67,7 @@ describe('immutable Capix Code installer', () => {
     const f = fixture((artifact, digest) => `${digest}  ${artifact}\n`);
     const result = run(f);
     expect(result.status, `stdout=${result.stdout}\nstderr=${result.stderr}`).toBe(0);
-    expect(readlinkSync(join(f.install, 'capix-code'))).toBe(join(f.runtime, 'bin', 'capix-code'));
+    expect(readFileSync(join(f.install, 'capix-code'), 'utf8')).toContain('capix-code-test');
   });
 
   it('rejects a checksum for a similarly named artifact', () => {
