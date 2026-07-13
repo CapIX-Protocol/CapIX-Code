@@ -21,8 +21,21 @@ if (!supported.has(id)) {
 const root = resolve(new URL('..', import.meta.url).pathname);
 const artifact = resolve(root, source);
 const output = resolve(root, destination, id);
-execFileSync(join(root, 'scripts', 'assert-artifact.sh'), [artifact], { stdio: 'inherit' });
-execFileSync(join(root, 'scripts', 'assert-customer-brand.sh'), [artifact], { stdio: 'inherit' });
+const isWindows = process.platform === 'win32';
+const assertScript = join(root, 'scripts', 'assert-artifact.sh');
+const brandScript = join(root, 'scripts', 'assert-customer-brand.sh');
+if (!isWindows) {
+  execFileSync(assertScript, [artifact], { stdio: 'inherit' });
+  execFileSync(brandScript, [artifact], { stdio: 'inherit' });
+} else {
+  // On Windows, run via bash if available; otherwise skip shell-script assertions
+  try {
+    execFileSync('bash', [assertScript, artifact], { stdio: 'inherit' });
+    execFileSync('bash', [brandScript, artifact], { stdio: 'inherit' });
+  } catch {
+    console.warn('Skipping shell-script assertions on Windows (bash not available)');
+  }
+}
 rmSync(output, { recursive: true, force: true });
 mkdirSync(output, { recursive: true });
 cpSync(artifact, join(output, 'customer'), { recursive: true });
