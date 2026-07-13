@@ -17,3 +17,4 @@ Thumbs.db
 
 # Rust build output
 launcher/target/
+release-artifacts/
