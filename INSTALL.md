@@ -10,16 +10,16 @@ Never continue when a downloaded artifact does not match its adjacent SHA-256 fi
 
 ## Versioning
 
-Versions are immutable `vMAJOR.MINOR.PATCH` tags. The single source of truth for
-the current stable release is `manifest/release-manifest.json#stableVersion` —
-the release pipeline materializes it with real checksums and rejects any
-manifest that still contains `TEMPLATE` placeholders or zero-size artifacts
-(`npm run manifest:validate`). The Capix Code shell installer resolves `latest`
-to an immutable tag by setting `CAPIX_STABLE_VERSION` before download, rather
-than trusting mutable content:
+Versions are immutable `vMAJOR.MINOR.PATCH` tags. The commands below pin Capix
+Code `v1.1.0`, the newest public release that currently has attached customer
+artifacts and adjacent checksums. Do not substitute a newer tag unless its
+release page contains the exact archive and checksum filenames used below.
+
+The Capix Code shell installer resolves `latest` to an immutable tag by setting
+`CAPIX_STABLE_VERSION` before download, rather than trusting mutable content:
 
 ```bash
-CAPIX_STABLE_VERSION=v1.2.7 bash scripts/install.sh latest
+CAPIX_STABLE_VERSION=v1.1.0 bash scripts/install.sh latest
 ```
 
 ## macOS
@@ -65,7 +65,7 @@ IDE_ARCH=x64
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.2.7
+CODE_VERSION=v1.1.0
 CODE_ARCH=arm64
 CODE_NAME="capix-code-${CODE_VERSION#v}-darwin-${CODE_ARCH}-unsigned"
 CODE_URL="https://github.com/CapIX-Protocol/CapIX-Code/releases/download/${CODE_VERSION}"
@@ -138,7 +138,7 @@ capixide
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.2.7
+CODE_VERSION=v1.1.0
 case "$(uname -m)" in
   x86_64) CODE_ARCH=x64 ;;
   aarch64|arm64) CODE_ARCH=arm64 ;;
@@ -209,7 +209,7 @@ The build is unsigned. If SmartScreen appears, select **More info**, verify the 
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$CodeVersion = "v1.2.7"
+$CodeVersion = "v1.1.0"
 $CodeName = "capix-code-$($CodeVersion.TrimStart('v'))-win32-x64-unsigned"
 $CodeUrl = "https://github.com/CapIX-Protocol/CapIX-Code/releases/download/$CodeVersion"
 $Download = Join-Path $env:USERPROFILE "Downloads"
@@ -252,15 +252,19 @@ CapixIDE and Capix Code use browser authentication. Do not paste refresh tokens 
 2. Select **Sign In** in Profile.
 3. Complete the browser wallet-signature flow.
 4. Return to CapixIDE and confirm Profile displays the web balance and deployments.
-5. In a terminal, run:
+5. In a terminal, verify the installed runtime without invoking paid inference:
 
 ```bash
-capix-code auth status
-capix-code balance
-capix-code llm-run "Reply with exactly: CAPIX_REMOTE_OK"
+capix-code --version
+capix-code doctor
+capix-code --help
 ```
 
-A successful inference prints `CAPIX_REMOTE_OK` and a Capix route receipt. Then launch the coding interface:
+The current customer launcher exposes `login`, `account`, `status`, and
+`llm-run`; it does not expose the legacy `auth status` or `balance` command
+forms. Complete `capix-code login`, then launch the coding interface and confirm
+the Capix Auto and SuperGemma model entries are present before sending a paid
+request:
 
 ```bash
 capix-code
