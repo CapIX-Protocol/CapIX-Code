@@ -14,7 +14,7 @@ Never continue when a downloaded artifact does not match its adjacent SHA-256 fi
 
 ```bash
 set -euo pipefail
-IDE_VERSION=v1.2.6
+IDE_VERSION=v1.2.7
 IDE_ARCH=arm64
 IDE_NAME="CapixIDE-${IDE_VERSION}-darwin-${IDE_ARCH}-unsigned"
 IDE_URL="https://github.com/CapIX-Protocol/CapIX-IDE/releases/download/${IDE_VERSION}"
@@ -51,7 +51,7 @@ IDE_ARCH=x64
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.2.4
+CODE_VERSION=v1.2.7
 CODE_ARCH=arm64
 CODE_NAME="capix-code-${CODE_VERSION#v}-darwin-${CODE_ARCH}-unsigned"
 CODE_URL="https://github.com/CapIX-Protocol/CapIX-Code/releases/download/${CODE_VERSION}"
@@ -92,7 +92,7 @@ The commands support x86_64 and arm64 distributions. They install into the curre
 
 ```bash
 set -euo pipefail
-IDE_VERSION=v1.2.6
+IDE_VERSION=v1.2.7
 case "$(uname -m)" in
   x86_64) IDE_ARCH=x64 ;;
   aarch64|arm64) IDE_ARCH=arm64 ;;
@@ -124,7 +124,7 @@ capixide
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.2.4
+CODE_VERSION=v1.2.7
 case "$(uname -m)" in
   x86_64) CODE_ARCH=x64 ;;
   aarch64|arm64) CODE_ARCH=arm64 ;;
@@ -166,7 +166,7 @@ Open **PowerShell** as the normal user. Administrator access is not required.
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$IdeVersion = "v1.2.6"
+$IdeVersion = "v1.2.7"
 $IdeName = "CapixIDE-$IdeVersion-win32-x64-unsigned"
 $IdeUrl = "https://github.com/CapIX-Protocol/CapIX-IDE/releases/download/$IdeVersion"
 $Download = Join-Path $env:USERPROFILE "Downloads"
@@ -195,7 +195,7 @@ The build is unsigned. If SmartScreen appears, select **More info**, verify the 
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$CodeVersion = "v1.2.4"
+$CodeVersion = "v1.2.7"
 $CodeName = "capix-code-$($CodeVersion.TrimStart('v'))-win32-x64-unsigned"
 $CodeUrl = "https://github.com/CapIX-Protocol/CapIX-Code/releases/download/$CodeVersion"
 $Download = Join-Path $env:USERPROFILE "Downloads"
