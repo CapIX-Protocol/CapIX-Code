@@ -124,6 +124,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
+      - name: Install release metadata dependencies
+        # npm 11 rejects intentionally unpublished optional platform packages
+        # before their release assets exist. Match the Node 22 build lanes and
+        # pin npm 10 so SBOM generation remains reproducible.
+        run: npx --yes npm@10.9.4 ci --ignore-scripts
       - name: Materialize immutable release manifest and checksums
         shell: bash
         run: |
@@ -145,7 +151,7 @@ jobs:
           node scripts/validate-manifest.mjs release-artifacts/release-manifest.json
 
           cp NOTICE release-artifacts/NOTICE
-          npm sbom --sbom-format spdx > release-artifacts/sbom.spdx.json
+          npx --yes npm@10.9.4 sbom --sbom-format spdx > release-artifacts/sbom.spdx.json
           jq -n \
             --arg tag "${{ inputs.release_tag }}" \
             --arg sourceSha "${{ github.sha }}" \
