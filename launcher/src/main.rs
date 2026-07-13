@@ -105,6 +105,20 @@ enum Command {
         #[arg(long)]
         model: Option<String>,
     },
+    /// List available Capix models
+    Models,
+    /// List compute instances (deployments)
+    Instances,
+    /// Deploy a one-click LLM
+    Deploy {
+        #[command(subcommand)]
+        subcommand: DeployCommand,
+    },
+    /// Destroy a deployment or GPU asset
+    Destroy {
+        /// Deployment or saga ID to destroy
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -145,6 +159,19 @@ enum BillingCommand {
     History {
         #[arg(long)]
         asset: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum DeployCommand {
+    /// Deploy a one-click LLM (POST /api/v1/llm/deploy)
+    Llm {
+        /// Model ID to deploy
+        #[arg(long)]
+        model: String,
+        /// Quote ID for this deployment
+        #[arg(long)]
+        quote: String,
     },
 }
 
@@ -596,6 +623,68 @@ fn api_get(path: &str) -> Result<ExitCode, String> {
     })?;
     println!("{body}");
     Ok(ExitCode::SUCCESS)
+}
+
+fn deploy_llm(model: &str, quote_id: &str) -> Result<ExitCode, String> {
+    let token = access_token()?;
+    let idempotency_key = format!("capix-code-deploy-{}", uuid());
+    let body = runtime()?.block_on(async {
+        let response = reqwest::Client::new()
+            .post(format!("{WEB_ORIGIN}/api/v1/llm/deploy"))
+            .bearer_auth(token)
+            .header("idempotency-key", &idempotency_key)
+            .header("content-type", "application/json")
+            .body(serde_json::to_string(&serde_json::json!({
+                "modelId": model,
+                "quoteId": quote_id,
+            })).map_err(|e| e.to_string())?)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            return Err(format!("Capix deploy returned {status}: {text}"));
+        }
+        serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
+    })?;
+    println!("{body}");
+    Ok(ExitCode::SUCCESS)
+}
+
+fn destroy(id: &str) -> Result<ExitCode, String> {
+    let token = access_token()?;
+    let idempotency_key = format!("capix-code-destroy-{}", uuid());
+    let body = runtime()?.block_on(async {
+        let endpoint = if id.starts_with("gpu_") {
+            format!("{WEB_ORIGIN}/api/v1/gpu/{}", id)
+        } else {
+            format!("{WEB_ORIGIN}/api/v1/deployments/{}", id)
+        };
+        let response = reqwest::Client::new()
+            .delete(&endpoint)
+            .bearer_auth(token)
+            .header("idempotency-key", &idempotency_key)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            return Err(format!("Capix destroy returned {status}: {text}"));
+        }
+        serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())
+    })?;
+    println!("{body}");
+    Ok(ExitCode::SUCCESS)
+}
+
+fn uuid() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    format!("{nanos:x}")
 }
 
 fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
@@ -1417,6 +1506,12 @@ fn main() -> ExitCode {
         Command::Quote { prompt, asset, model } => {
             quote(&prompt, asset.as_deref(), model.as_deref())
         }
+        Command::Models => api_get("/api/v1/models"),
+        Command::Instances => api_get("/api/v1/deployments"),
+        Command::Deploy { subcommand } => match subcommand {
+            DeployCommand::Llm { model, quote } => deploy_llm(&model, &quote),
+        },
+        Command::Destroy { id } => destroy(&id),
     };
     match result {
         Ok(code) => code,
