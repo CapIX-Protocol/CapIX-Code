@@ -6,5 +6,17 @@
   "updateBaseUrl": "https://www.capix.network/api/v1",
   "sandbox": "restricted",
   "telemetry": false,
-  "contentLogging": false
+  "contentLogging": false,
+  "settlement": {
+    "enabled": false,
+    "rpcUrl": "",
+    "programId": "",
+    "cluster": "localnet"
+  },
+  "cpx": {
+    "mint": "",
+    "decimals": 9,
+    "pricingSource": "protocol-reference",
+    "maxPriceAgeSeconds": 60
+  }
 }

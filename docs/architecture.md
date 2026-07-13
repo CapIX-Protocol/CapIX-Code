@@ -83,4 +83,15 @@ The default provider config (`config/defaults.json`) registers:
 
 ### Security Note
 
-API credentials (`CAPIX_API_KEY`) are currently passed via environment variables or stored in the upstream auth store. There is a tracked TODO to migrate to OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service / libsecret) so secrets are never written to disk in plaintext.
+API credentials (`CAPIX_API_KEY`) are passed via environment variables or stored in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service / libsecret) so secrets are never written to disk in plaintext. (The upstream plaintext auth-store TODO has been resolved — keychain-backed storage is the active path; `config/defaults.json` schemas are vendored locally, with no `opencode.ai` beacons.)
+
+### Settlement program references
+
+`capix-code` is a client of the Capix network; it does not settle on-chain itself. Settlement is handled by the Capix protocol's Solana programs (local validator stage — **not deployed to mainnet**):
+
+| Program | Address | Role |
+|---|---|---|
+| `capix_settlement` | `EDq6zWR8PEcEhQo5W8JjzwcAAjwEpWJUyZQSdo6gHWHW` | Deposit escrow, settlement epochs, Merkle commitments, provider claims |
+| `capix_dev_proof` | `F6xwGSvvWLJMRvGbCzEm5DMH7FBi4hKrmSnEUSo8in9U` | Anchors the DEV proof-of-useful-work commitments that `capix-code` commits trigger |
+
+The DEV tokens minted for verifiable development are **non-transferable proof of useful work**; on-chain anchoring is in development (local validator stage) and no mainnet deployment or token exchange is planned. Legacy `capix-core`/`capix-dispute`/`quantum-verifier` programs are superseded.

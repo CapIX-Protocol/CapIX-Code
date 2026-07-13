@@ -11,7 +11,7 @@ Capix Code is a complete AI coding agent built on TypeScript/Bun (~640 lines of 
 - **Smart Route (auto mode)** — when using `capix/auto` (the default), a mini-AI classifier analyzes each request and routes it to the best model for the task: a strong reasoning model (Llama 3.3 70B, Gemma 3 27B) for planning/analysis, and a strong coding model (Qwen2.5-Coder, CodeGemma) for writing code. The classifier runs on `capix/supergemma-gemma3-4b` via the Capix gateway (~200ms, cached per session) — imperceptible to the user. Results are cached per session so similar consecutive requests skip the classifier entirely.
 - **Capix model catalog** — 8 pre-listed models including auto-routing (cheapest), Gemma 3 variants (27B/12B/4B), CodeGemma 7B, Qwen2.5-Coder 7B/32B, and Llama 3.3 70B
 - **Auto-connect** — Capix IDE sets `CAPIX_BASE_URL` and `CAPIX_API_KEY` env vars in launched terminals from its SecretStorage, so `capix-code` works with zero additional setup
-- **Dev Token rewards** — every commit you make with Capix Code mints DEV tokens to your wallet. Complete a session, deploy, or record a decision → more tokens. On-chain proof of useful development, exchangeable for SOL or CPX in the future.
+- **Dev Token rewards** — every commit you make with Capix Code mints DEV tokens to your wallet. Complete a session, deploy, or record a decision → more tokens. Proof of useful development; DEV tokens are non-transferable (no exchange planned).
 - **Covenant governance** — safe defaults: edit/bash actions require approval, autoupdate disabled (IDE manages updates)
 
 ## Install
@@ -65,7 +65,7 @@ Every time you do verifiable development with Capix Code, DEV tokens are minted 
 | Record an architectural decision          | +2 DEV  |
 | Ship a complete product                   | +50 DEV |
 
-Tokens are on-chain proof of useful work (Solana devnet pre-mainnet). In the future, DEV tokens will be exchangeable for SOL or CPX at launch — rewarding developers who built real products with Capix tools.
+Tokens are proof of useful work — on-chain anchoring in development (local validator stage). DEV tokens are non-transferable proof of useful work; no exchange planned.
 
 ## How it works
 
