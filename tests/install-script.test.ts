@@ -41,7 +41,7 @@ function fixture(manifest: (artifact: string, digest: string) => string) {
   return { root, version, artifact, install, runtime };
 }
 
-function run(f: ReturnType<typeof fixture>, version = f.version) {
+function run(f: ReturnType<typeof fixture>, version = f.version, env?: Record<string, string>) {
   return spawnSync('bash', [script, version], {
     encoding: 'utf8',
     env: {
@@ -51,16 +51,32 @@ function run(f: ReturnType<typeof fixture>, version = f.version) {
       CAPIX_CODE_RUNTIME_DIR: f.runtime,
       CAPIX_INSTALL_OS: 'darwin',
       CAPIX_INSTALL_ARCH: 'arm64',
+      ...env,
     },
   });
 }
 
 describe('immutable Capix Code installer', () => {
-  it('rejects latest versions before downloading', () => {
+  it('rejects latest when no immutable stable version is pinned', () => {
     const f = fixture((artifact, digest) => `${digest}  ${artifact}\n`);
     const result = run(f, 'latest');
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain('immutable release version');
+    expect(result.stderr).toContain('CAPIX_STABLE_VERSION');
+  });
+
+  it('resolves latest to the pinned immutable version and installs', () => {
+    const f = fixture((artifact, digest) => `${digest}  ${artifact}\n`);
+    const result = run(f, 'latest', { CAPIX_STABLE_VERSION: f.version });
+    expect(result.status, `stdout=${result.stdout}\nstderr=${result.stderr}`).toBe(0);
+    expect(result.stderr).toContain(`Resolved latest -> ${f.version}`);
+    expect(readFileSync(join(f.install, 'capix-code'), 'utf8')).toContain('capix-code-test');
+  });
+
+  it('rejects a non-semver CAPIX_STABLE_VERSION', () => {
+    const f = fixture((artifact, digest) => `${digest}  ${artifact}\n`);
+    const result = run(f, 'latest', { CAPIX_STABLE_VERSION: 'main' });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('invalid version');
   });
 
   it('installs only when the exact artifact checksum matches', () => {

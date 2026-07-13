@@ -24,6 +24,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "manifest:validate": "node scripts/validate-manifest.mjs manifest/release-manifest.json",
+    "manifest:build": "node scripts/build-manifest.mjs",
+    "resolve-version": "node scripts/resolve-version.mjs",
     "prepack": "node scripts/prepare-npm-meta.mjs",
     "pack:npm-platform": "node scripts/prepare-npm-platform.mjs"
   },

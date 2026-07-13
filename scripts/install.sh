@@ -6,9 +6,20 @@ RELEASE_BASE_URL="${CAPIX_RELEASE_BASE_URL:-https://github.com/CapIX-Protocol/Ca
 INSTALL_DIR="${CAPIX_INSTALL_DIR:-${CAPIX_CODE_INSTALL_DIR:-${HOME}/.local/bin}}"
 RUNTIME_DIR="${CAPIX_CODE_RUNTIME_DIR:-${HOME}/.local/share/capix-code}"
 
+# "latest" is permitted only by resolving it to an immutable version BEFORE any
+# download — never by trusting mutable content. The release pipeline pins the
+# current stable version in CAPIX_STABLE_VERSION (the single source of truth
+# that also populates manifest/release-manifest.json#stableVersion). Without a
+# pin, "latest" fails closed so the installer never proceeds unbounded.
 if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
-  echo "ERROR: pass an immutable release version, for example: $0 v1.2.3" >&2
-  exit 2
+  if [ -n "${CAPIX_STABLE_VERSION:-}" ]; then
+    VERSION="$CAPIX_STABLE_VERSION"
+    echo "Resolved latest -> ${VERSION} (CAPIX_STABLE_VERSION)" >&2
+  else
+    echo "ERROR: 'latest' requires CAPIX_STABLE_VERSION to be set to an immutable release (e.g. v1.2.3)." >&2
+    echo "The release pipeline pins the current stable version there; do not pin to mutable content." >&2
+    exit 2
+  fi
 fi
 
 if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then

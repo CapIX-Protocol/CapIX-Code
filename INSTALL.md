@@ -8,6 +8,20 @@ This guide installs the unsigned customer builds published by the official Capix
 
 Never continue when a downloaded artifact does not match its adjacent SHA-256 file.
 
+## Versioning
+
+Versions are immutable `vMAJOR.MINOR.PATCH` tags. The single source of truth for
+the current stable release is `manifest/release-manifest.json#stableVersion` —
+the release pipeline materializes it with real checksums and rejects any
+manifest that still contains `TEMPLATE` placeholders or zero-size artifacts
+(`npm run manifest:validate`). The Capix Code shell installer resolves `latest`
+to an immutable tag by setting `CAPIX_STABLE_VERSION` before download, rather
+than trusting mutable content:
+
+```bash
+CAPIX_STABLE_VERSION=v1.2.7 bash scripts/install.sh latest
+```
+
 ## macOS
 
 ### CapixIDE — Apple silicon
