@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -17,16 +25,28 @@ function fixture(manifest: (artifact: string, digest: string) => string) {
   const root = mkdtempSync(join(tmpdir(), 'capix-install-'));
   roots.push(root);
   const version = 'v1.2.3';
-  const artifact = 'capix-code-darwin-arm64';
+  const artifact = 'capix-code-1.2.3-darwin-arm64-unsigned.tar.gz';
   const release = join(root, version);
   const install = join(root, 'bin');
+  const runtime = join(root, 'runtime');
   mkdirSync(release, { recursive: true });
+  const payload = join(root, 'payload', 'customer', 'bin');
+  mkdirSync(payload, { recursive: true });
   const bytes = '#!/bin/sh\necho capix-code-test\n';
-  writeFileSync(join(release, artifact), bytes);
-  chmodSync(join(release, artifact), 0o755);
-  const digest = createHash('sha256').update(bytes).digest('hex');
-  writeFileSync(join(release, 'checksums.txt'), manifest(artifact, digest));
-  return { root, version, artifact, install };
+  writeFileSync(join(payload, 'capix-code'), bytes);
+  chmodSync(join(payload, 'capix-code'), 0o755);
+  const archived = spawnSync('tar', [
+    '-czf',
+    join(release, artifact),
+    '-C',
+    join(root, 'payload'),
+    'customer',
+  ]);
+  if (archived.status !== 0) throw archived.error ?? new Error('fixture archive failed');
+  const archiveBytes = readFileSync(join(release, artifact));
+  const digest = createHash('sha256').update(archiveBytes).digest('hex');
+  writeFileSync(join(release, `${artifact}.sha256`), manifest(artifact, digest));
+  return { root, version, artifact, install, runtime };
 }
 
 function run(f: ReturnType<typeof fixture>, version = f.version) {
@@ -36,6 +56,7 @@ function run(f: ReturnType<typeof fixture>, version = f.version) {
       ...process.env,
       CAPIX_RELEASE_BASE_URL: `file://${f.root}`,
       CAPIX_INSTALL_DIR: f.install,
+      CAPIX_CODE_RUNTIME_DIR: f.runtime,
       CAPIX_INSTALL_OS: 'darwin',
       CAPIX_INSTALL_ARCH: 'arm64',
     },
@@ -54,7 +75,7 @@ describe('immutable Capix Code installer', () => {
     const f = fixture((artifact, digest) => `${digest}  ${artifact}\n`);
     const result = run(f);
     expect(result.status, `stdout=${result.stdout}\nstderr=${result.stderr}`).toBe(0);
-    expect(readFileSync(join(f.install, 'capix-code'), 'utf8')).toContain('capix-code-test');
+    expect(readlinkSync(join(f.install, 'capix-code'))).toBe(join(f.runtime, 'bin', 'capix-code'));
   });
 
   it('rejects a checksum for a similarly named artifact', () => {
@@ -64,7 +85,7 @@ describe('immutable Capix Code installer', () => {
       result.status,
       `stdout=${result.stdout}\nstderr=${result.stderr}\nerror=${result.error?.message ?? 'none'}`
     ).toBe(1);
-    expect(result.stderr).toContain('exactly one SHA-256 entry');
+    expect(result.stderr).toContain('exactly one valid SHA-256 entry');
   });
 
   it('rejects duplicate exact entries', () => {

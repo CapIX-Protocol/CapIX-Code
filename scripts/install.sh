@@ -3,7 +3,8 @@ set -euo pipefail
 
 VERSION="${CAPIX_CODE_VERSION:-${1:-}}"
 RELEASE_BASE_URL="${CAPIX_RELEASE_BASE_URL:-https://github.com/CapIX-Protocol/Capix-Code/releases/download}"
-INSTALL_DIR="${CAPIX_INSTALL_DIR:-${CAPIX_CODE_INSTALL_DIR:-/usr/local/bin}}"
+INSTALL_DIR="${CAPIX_INSTALL_DIR:-${CAPIX_CODE_INSTALL_DIR:-${HOME}/.local/bin}}"
+RUNTIME_DIR="${CAPIX_CODE_RUNTIME_DIR:-${HOME}/.local/share/capix-code}"
 
 if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
   echo "ERROR: pass an immutable release version, for example: $0 v1.2.3" >&2
@@ -39,23 +40,27 @@ case "$ARCH" in
   *) echo "ERROR: unsupported architecture '$ARCH'" >&2; exit 2 ;;
 esac
 
-ARTIFACT="capix-code-${OS}-${ARCH}"
+RELEASE_VERSION="${VERSION#v}"
+ARTIFACT="capix-code-${RELEASE_VERSION}-${OS}-${ARCH}-unsigned.tar.gz"
 BASE_URL="${RELEASE_BASE_URL}/${VERSION}"
 WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/capix-code-install.XXXXXX")
 trap 'rm -rf "$WORK_DIR"' EXIT INT TERM
 
 if [[ "$BASE_URL" == https://* ]]; then
-  curl --proto '=https' --tlsv1.2 -fsSL "${BASE_URL}/checksums.txt" -o "${WORK_DIR}/checksums.txt"
+  curl --proto '=https' --tlsv1.2 -fsSL "${BASE_URL}/${ARTIFACT}.sha256" -o "${WORK_DIR}/${ARTIFACT}.sha256"
   curl --proto '=https' --tlsv1.2 -fsSL "${BASE_URL}/${ARTIFACT}" -o "${WORK_DIR}/${ARTIFACT}"
 else
-  curl -fsSL "${BASE_URL}/checksums.txt" -o "${WORK_DIR}/checksums.txt"
+  curl -fsSL "${BASE_URL}/${ARTIFACT}.sha256" -o "${WORK_DIR}/${ARTIFACT}.sha256"
   curl -fsSL "${BASE_URL}/${ARTIFACT}" -o "${WORK_DIR}/${ARTIFACT}"
 fi
 
-EXPECTED=$(awk -v name="$ARTIFACT" '$2 == name || $2 == "*" name { print $1 }' "${WORK_DIR}/checksums.txt")
-MATCH_COUNT=$(awk -v name="$ARTIFACT" '$2 == name || $2 == "*" name { count++ } END { print count + 0 }' "${WORK_DIR}/checksums.txt")
-if [ -z "$EXPECTED" ] || [ "$MATCH_COUNT" -ne 1 ] || [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]]; then
-  echo "ERROR: checksum manifest must contain exactly one SHA-256 entry for ${ARTIFACT}" >&2
+CHECKSUM_LINES=$(awk 'NF { count++ } END { print count + 0 }' "${WORK_DIR}/${ARTIFACT}.sha256")
+EXPECTED=$(awk 'NF { print $1 }' "${WORK_DIR}/${ARTIFACT}.sha256")
+RECORDED_ARTIFACT=$(awk 'NF { print $2 }' "${WORK_DIR}/${ARTIFACT}.sha256")
+RECORDED_ARTIFACT="${RECORDED_ARTIFACT#\*}"
+RECORDED_ARTIFACT="${RECORDED_ARTIFACT##*/}"
+if [ "$CHECKSUM_LINES" -ne 1 ] || [ "$RECORDED_ARTIFACT" != "$ARTIFACT" ] || [[ ! "$EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]]; then
+  echo "ERROR: adjacent checksum must contain exactly one valid SHA-256 entry for ${ARTIFACT}" >&2
   exit 1
 fi
 
@@ -73,18 +78,27 @@ if [ "$EXPECTED" != "$ACTUAL" ]; then
   exit 1
 fi
 
-chmod 0755 "${WORK_DIR}/${ARTIFACT}"
-mkdir -p "$INSTALL_DIR"
-TARGET="${INSTALL_DIR}/capix-code"
-STAGED="${INSTALL_DIR}/.capix-code.${VERSION}.new"
+mkdir -p "$INSTALL_DIR" "$(dirname "$RUNTIME_DIR")"
 
 if [ ! -w "$INSTALL_DIR" ]; then
   echo "ERROR: ${INSTALL_DIR} is not writable. Re-run with a user-owned CAPIX_CODE_INSTALL_DIR; this installer does not invoke sudo." >&2
   exit 1
 fi
 
-cp "${WORK_DIR}/${ARTIFACT}" "$STAGED"
-mv "$STAGED" "$TARGET"
+tar -xzf "${WORK_DIR}/${ARTIFACT}" -C "$WORK_DIR"
+test -x "${WORK_DIR}/customer/bin/capix-code" || {
+  echo "ERROR: verified archive does not contain customer/bin/capix-code" >&2
+  exit 1
+}
+
+STAGED_RUNTIME="${RUNTIME_DIR}.${VERSION}.new"
+rm -rf "$STAGED_RUNTIME"
+mkdir -p "$STAGED_RUNTIME"
+cp -a "${WORK_DIR}/customer/." "$STAGED_RUNTIME/"
+rm -rf "$RUNTIME_DIR"
+mv "$STAGED_RUNTIME" "$RUNTIME_DIR"
+ln -sfn "${RUNTIME_DIR}/bin/capix-code" "${INSTALL_DIR}/capix-code"
+TARGET="${INSTALL_DIR}/capix-code"
 
 echo "Installed verified Capix Code ${VERSION} at ${TARGET}"
 echo "This artifact is unsigned. Verification used the release's exact SHA-256 manifest entry."
