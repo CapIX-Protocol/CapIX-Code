@@ -15,7 +15,7 @@ describe('CredentialBroker PKCE', () => {
     const url = new URL(await broker.authorizationUrl());
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     expect(url.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(url.searchParams.get('redirect_uri')).toBe('http://127.0.0.1:0/callback');
+    expect(url.searchParams.get('redirect_uri')).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
     expect(url.searchParams.get('state')).toBeTruthy();
   });
 

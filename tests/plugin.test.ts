@@ -82,9 +82,9 @@ describe('Plugin factory — Hooks structure', () => {
     expect(typeof hooks.dispose).toBe('function');
   });
 
-  it('registers only the intelligence context chat.params hook', async () => {
+  it('registers chat.params and chat.message hooks but not chat.headers', async () => {
     const hooks = await getHooks();
-    expect(hooks['chat.message']).toBeUndefined();
+    expect(typeof hooks['chat.message']).toBe('function');
     expect(typeof hooks['chat.params']).toBe('function');
     expect(hooks['chat.headers']).toBeUndefined();
   });

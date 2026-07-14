@@ -13,9 +13,10 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@capix/contracts": ["types/capix-contracts.d.ts"]
+      "@capix/contracts": ["types/capix-contracts.d.ts"],
+      "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*", "brand/**/*", "types/**/*", "tests/**/*"],
+  "include": ["src/**/*", "brand/**/*", "types/**/*", "tests/**/*", "packages/runtime-provider/**/*"],
   "exclude": ["node_modules", "dist"]
 }

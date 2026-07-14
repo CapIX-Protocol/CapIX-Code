@@ -1011,3 +1011,160 @@ export async function listHookEvents(
   });
   return result ?? { events: [] };
 }
+
+// ── Project context / active session (cross-surface brain sync) ────────────
+// These methods sync and retrieve the shared project context so the web chat,
+// IDE, CLI, and MCP all see the same orientation, active files, recent
+// decisions, active plan, and active agents — regardless of which surface
+// last touched the project.
+
+export interface ProjectContextCodebaseSummary {
+  totalFiles?: number;
+  languages?: string[];
+  keyModules?: string[];
+  entryPoints?: string[];
+  framework?: string;
+}
+
+export interface ProjectContextDecision {
+  id: string;
+  summary: string;
+  confidence?: number;
+  timestamp: string;
+}
+
+export interface ProjectContextPlan {
+  id: string;
+  goal: string;
+  definitionOfDone: string[];
+  status: string;
+  createdAt: string;
+}
+
+export interface ProjectContextCheckpoint {
+  id: string;
+  planId?: string;
+  contentHash?: string;
+  createdAt: string;
+}
+
+export interface ProjectContextAgent {
+  id: string;
+  generation?: number;
+  parentAgentId?: string;
+  role: string;
+  mandate: string;
+  status: string;
+  trustLevel?: string;
+  bornAt: string;
+}
+
+export interface ProjectContext {
+  orientation: string | null;
+  recentDecisions: ProjectContextDecision[];
+  activePlan: ProjectContextPlan | null;
+  recentCheckpoints: ProjectContextCheckpoint[];
+  activeAgents: ProjectContextAgent[];
+  activeFiles: string[];
+  codebaseSummary: ProjectContextCodebaseSummary | null;
+  lastSyncAt: string | null;
+}
+
+export interface ActiveProjectSummary {
+  projectId: string;
+  projectName: string;
+  lastActivity: string;
+  activePlan: ProjectContextPlan | null;
+  activeFiles: string[];
+  activeAgents: ProjectContextAgent[];
+  sessionSource: string;
+}
+
+export interface ActiveSessionRecentWork {
+  type: 'checkpoint' | 'decision' | 'plan' | 'deployment';
+  summary: string;
+  timestamp: string;
+  projectId: string;
+}
+
+export interface ActiveSession {
+  activeProjects: ActiveProjectSummary[];
+  recentWork: ActiveSessionRecentWork[];
+}
+
+export interface SyncProjectContextInput {
+  projectId?: string;
+  orientation: string;
+  codebaseSummary: ProjectContextCodebaseSummary | Record<string, unknown>;
+  activeFiles: string[];
+  sessionSource: 'capix-code' | 'capix-ide' | 'web' | 'capix-cli' | 'mcp' | string;
+}
+
+/**
+ * Sync local codebase context (orientation + codebase summary + active files)
+ * to the server so any surface can retrieve it. Non-blocking on the caller's
+ * side: failures surface as `IntelligenceHttpError` and should be caught by the
+ * plugin (which treats sync as best-effort).
+ */
+export async function syncProjectContext(
+  input: SyncProjectContextInput,
+  opts: { projectId?: string; signal?: AbortSignal } = {}
+): Promise<{ id: string; lastSyncAt: string; projectId: string }> {
+  const result = await request<{ id: string; lastSyncAt: string; projectId: string }>({
+    method: 'POST',
+    path: '/intelligence/project-context/sync',
+    body: {
+      projectId: opts.projectId ?? input.projectId,
+      orientation: input.orientation,
+      codebaseSummary: input.codebaseSummary,
+      activeFiles: input.activeFiles,
+      sessionSource: input.sessionSource,
+    },
+    projectId: opts.projectId ?? input.projectId,
+    signal: opts.signal,
+  });
+  return result ?? { id: '', lastSyncAt: new Date().toISOString(), projectId: opts.projectId ?? input.projectId ?? '' };
+}
+
+/**
+ * Get the synced project context for a project (the orientation, active files,
+ * recent decisions, active plan, etc. last pushed by any surface).
+ */
+export async function getProjectContext(
+  projectId: string,
+  opts: { signal?: AbortSignal } = {}
+): Promise<ProjectContext> {
+  const result = await request<ProjectContext>({
+    method: 'GET',
+    path: '/intelligence/project-context',
+    query: { projectId },
+    projectId,
+    signal: opts.signal,
+  });
+  return result ?? {
+    orientation: null,
+    recentDecisions: [],
+    activePlan: null,
+    recentCheckpoints: [],
+    activeAgents: [],
+    activeFiles: [],
+    codebaseSummary: null,
+    lastSyncAt: null,
+  };
+}
+
+/**
+ * Get what the user is currently working on across all surfaces — active
+ * projects (with their active plan / files / agents) plus a unified recent-work
+ * feed. Uses the authenticated account, scoped via the broker token.
+ */
+export async function getActiveSession(
+  opts: { signal?: AbortSignal } = {}
+): Promise<ActiveSession> {
+  const result = await request<ActiveSession>({
+    method: 'GET',
+    path: '/intelligence/active-session',
+    signal: opts.signal,
+  });
+  return result ?? { activeProjects: [], recentWork: [] };
+}

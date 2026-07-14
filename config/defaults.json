@@ -51,6 +51,14 @@
     "edit": "ask",
     "bash": "ask"
   },
+  "mcp": {
+    "capix": {
+      "type": "local",
+      "command": ["npx", "-y", "@capix/mcp", "server", "--stdio"],
+      "enabled": true,
+      "environment": {}
+    }
+  },
   "share": "manual",
   "autoupdate": false,
   "plugin": ["./src/plugin.ts"],
@@ -107,9 +115,9 @@
       "model": "capix/auto",
       "template": "file://commands/review.md"
     },
-    "verify": {
+    "verify-checks": {
       "description": "Run verification checks — build, type, lint, test, security, diff",
-      "template": "file://commands/verify.md"
+      "template": "file://commands/verify-checks.md"
     },
     "handoff": {
       "description": "Create an agent handoff / exit report",
@@ -135,6 +143,106 @@
     "receipts": {
       "description": "List work receipts — useful-work evidence and anchoring status",
       "template": "file://commands/receipts.md"
+    },
+    "network": {
+      "description": "List VPCs, create VPCs, manage subnets, view routes, manage security groups",
+      "model": "capix/auto",
+      "template": "file://commands/network.md"
+    },
+    "endpoints": {
+      "description": "List endpoints, create endpoints, add custom domains, view endpoint health",
+      "model": "capix/auto",
+      "template": "file://commands/endpoints.md"
+    },
+    "ssh": {
+      "description": "Connect to a deployment, port forward, revoke an SSH session",
+      "model": "capix/auto",
+      "template": "file://commands/ssh.md"
+    },
+    "forward": {
+      "description": "Forward a local port to a deployment port",
+      "model": "capix/auto",
+      "template": "file://commands/forward.md"
+    },
+    "logs": {
+      "description": "Stream deployment logs, filter by level, download",
+      "template": "file://commands/logs.md"
+    },
+    "metrics": {
+      "description": "View deployment metrics — CPU, GPU, memory, network",
+      "template": "file://commands/metrics.md"
+    },
+    "stop": {
+      "description": "Stop a deployment",
+      "model": "capix/auto",
+      "template": "file://commands/stop.md"
+    },
+    "secure": {
+      "description": "Deploy a confidential VM/GPU, view TEE status",
+      "model": "capix/auto",
+      "template": "file://commands/secure.md"
+    },
+    "attest": {
+      "description": "Fetch and verify attestation evidence",
+      "template": "file://commands/attest.md"
+    },
+    "verify-proof": {
+      "description": "Verify a proof or attestation",
+      "template": "file://commands/verify-proof.md"
+    },
+    "proofs": {
+      "description": "List and inspect zkVM proofs",
+      "template": "file://commands/proofs.md"
+    },
+    "confidential-models": {
+      "description": "List and deploy confidential model endpoints",
+      "model": "capix/auto",
+      "template": "file://commands/confidential-models.md"
+    },
+    "website": {
+      "description": "Deploy a website from a repo, list websites",
+      "model": "capix/auto",
+      "template": "file://commands/website.md"
+    },
+    "preview": {
+      "description": "Create a preview deployment",
+      "model": "capix/auto",
+      "template": "file://commands/preview.md"
+    },
+    "promote": {
+      "description": "Promote a preview deployment to production",
+      "model": "capix/auto",
+      "template": "file://commands/promote.md"
+    },
+    "rollback": {
+      "description": "Rollback to a previous deployment",
+      "model": "capix/auto",
+      "template": "file://commands/rollback.md"
+    },
+    "domains": {
+      "description": "Add, verify, and remove custom domains",
+      "model": "capix/auto",
+      "template": "file://commands/domains.md"
+    },
+    "analytics": {
+      "description": "View website analytics",
+      "template": "file://commands/analytics.md"
+    },
+    "open": {
+      "description": "Open a deployment in the browser",
+      "template": "file://commands/open.md"
+    },
+    "doctor": {
+      "description": "Diagnose Capix Code installation and connection",
+      "template": "file://commands/doctor.md"
+    },
+    "update": {
+      "description": "Check for and install Capix Code updates",
+      "template": "file://commands/update.md"
+    },
+    "welcome": {
+      "description": "First-run onboarding — sign in, check balance, browse models, get started",
+      "template": "file://commands/welcome.md"
     }
   }
 }

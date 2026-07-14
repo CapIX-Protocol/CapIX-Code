@@ -24,6 +24,7 @@
  * fully wired, and remains the contract surface for tests.
  */
 
+import { createServer, type Server } from 'node:net';
 import { logger } from './logger.js';
 
 export interface AccessToken {
@@ -89,6 +90,8 @@ export class CredentialBroker {
   private deviceSession: DeviceSession | null = null;
   private authorizeUrl: string | null = null;
   private authorizationCode: string | null = null;
+  private callbackServer: Server | null = null;
+  private redirectUri: string | null = null;
 
   /** True when only session storage is available (plaintext fallback refused). */
   readonly sessionOnly: boolean;
@@ -153,12 +156,12 @@ export class CredentialBroker {
 
     const res = await fetch('https://www.capix.network/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refresh,
-        client: 'capix-code',
-      }),
+        client_id: 'capix-code',
+      }).toString(),
     });
     if (!res.ok) {
       if (res.status === 401) {
@@ -195,6 +198,21 @@ export class CredentialBroker {
     const { verifier, challenge } = await this.generatePkce();
     const state = this.randomToken(24);
     const codeChallenge = challenge;
+
+    // Dynamically bind an ephemeral loopback port so the redirect URI is a
+    // real, addressable endpoint rather than the invalid `:0`.
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (!addr || typeof addr !== 'object' || !addr.port) {
+      server.close();
+      throw new Error('capix-broker: failed to bind ephemeral loopback port');
+    }
+    const port = addr.port;
+    const redirectUri = `http://127.0.0.1:${port}/callback`;
+    this.callbackServer = server;
+    this.redirectUri = redirectUri;
+
     // Build the authorize URL; the real broker opens the system browser.
     const url = new URL('https://www.capix.network/oauth/authorize');
     url.searchParams.set('response_type', 'code');
@@ -202,13 +220,13 @@ export class CredentialBroker {
     url.searchParams.set('code_challenge', codeChallenge);
     url.searchParams.set('code_challenge_method', 'S256');
     url.searchParams.set('state', state);
-    url.searchParams.set('redirect_uri', 'http://127.0.0.1:0/callback');
+    url.searchParams.set('redirect_uri', redirectUri);
     // Stash PKCE verifier for exchangeCode().
     this.pkceVerifier = verifier;
     this.authState = state;
     this.authorizeUrl = url.toString();
     await this.openBrowser(url.toString());
-    logger.info('capix-broker: login started', { state });
+    logger.info('capix-broker: login started', { state, port });
   }
 
   /** Return the authorize URL (for the plugin auth hook). */
@@ -236,6 +254,8 @@ export class CredentialBroker {
     const code = await this.awaitCode();
     const verifier = this.pkceVerifier;
     if (!verifier) throw new Error('capix-broker: no PKCE verifier');
+    const redirectUri = this.redirectUri;
+    if (!redirectUri) throw new Error('capix-broker: no redirect URI — call login() first');
     const res = await fetch('https://www.capix.network/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -244,10 +264,12 @@ export class CredentialBroker {
         code,
         code_verifier: verifier,
         client_id: 'capix-code',
-        redirect_uri: 'http://127.0.0.1:0/callback',
+        redirect_uri: redirectUri,
       }),
     });
     if (!res.ok) {
+      this.redirectUri = null;
+      this.closeCallbackServer();
       return { type: 'failed' };
     }
     const body = (await res.json()) as {
@@ -269,6 +291,8 @@ export class CredentialBroker {
     this.authState = null;
     this.authorizeUrl = null;
     this.authorizationCode = null;
+    this.redirectUri = null;
+    this.closeCallbackServer();
     return {
       type: 'success',
       provider: 'capix',
@@ -323,6 +347,8 @@ export class CredentialBroker {
       this.sessionRefresh = null;
       this.lastRefreshSeen = null;
       this.deviceSession = null;
+      this.redirectUri = null;
+      this.closeCallbackServer();
     }
   }
 
@@ -343,6 +369,8 @@ export class CredentialBroker {
       this.sessionRefresh = null;
       this.lastRefreshSeen = null;
       this.deviceSession = null;
+      this.redirectUri = null;
+      this.closeCallbackServer();
     }
   }
 
@@ -392,6 +420,14 @@ export class CredentialBroker {
   }
 
   // ── PKCE + browser helpers ──────────────────────────────────────────────
+
+  /** Close the ephemeral loopback server used to reserve a port during login. */
+  private closeCallbackServer(): void {
+    if (this.callbackServer) {
+      this.callbackServer.close();
+      this.callbackServer = null;
+    }
+  }
 
   private pkceVerifier: string | null = null;
   private authState: string | null = null;
