@@ -14,18 +14,23 @@ Thank you for your interest in contributing to Capix Code! This document covers 
 
 ### Prerequisites
 
-- [Bun 1.3+](https://bun.sh) (runtime + bundler)
-- [Node.js 22+](https://nodejs.org) (for the standalone TypeScript tooling — tsc, eslint, prettier, vitest)
+- Bun `1.3.14` exactly (runtime and bundler)
+- [Node.js 20+](https://nodejs.org) (standalone TypeScript tooling)
+- [Rust stable](https://www.rust-lang.org/tools/install) (native customer launcher)
 - [Git](https://git-scm.com)
 
 ### Get the code
 
 ```bash
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
+export PATH="$HOME/.bun/bin:$PATH"
 git clone https://github.com/CapIX-Protocol/Capix-Code.git
-cd capix-code
-npm install          # dev tooling (tsc, eslint, prettier, vitest, husky)
-./scripts/bootstrap.sh   # clones the upstream source
-./scripts/dev.sh         # launches capix-code in dev mode
+cd CapIX-Code
+npm install
+test "$(bun --version)" = "1.3.14"
+./scripts/bootstrap.sh
+./scripts/rebrand.sh
+BUN_BIN="$(command -v bun)" ./scripts/dev.sh
 ```
 
 Set your Capix env vars before running:

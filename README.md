@@ -60,19 +60,27 @@ Capix Code is a complete AI coding agent built on TypeScript/Bun. The `scripts/b
 
 ## Building from source
 
-Requires [Bun 1.3+](https://bun.sh).
+Requires Node.js 20 or newer, Rust stable, and Bun `1.3.14` exactly. Install the
+pinned Bun release before building and confirm its version.
 
 ```bash
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
+export PATH="$HOME/.bun/bin:$PATH"
 git clone https://github.com/CapIX-Protocol/Capix-Code.git
-cd capix-code
-./scripts/bootstrap.sh    # clones source + applies branding + installs config + theme
-./scripts/dev.sh          # launches in dev mode (Bun)
+cd CapIX-Code
+test "$(bun --version)" = "1.3.14"
+./scripts/bootstrap.sh
+./scripts/rebrand.sh
+BUN_BIN="$(command -v bun)" ./scripts/dev.sh
 ```
 
 To build a standalone binary:
 
 ```bash
-./scripts/build.sh        # produces dist/capix-code-<platform>/bin/capix-code
+BUN_BIN="$(command -v bun)" ./scripts/build.sh
+# verified customer runtime: dist/customer/bin/capix-code
+dist/customer/bin/capix-code --version
+dist/customer/bin/capix-code doctor
 ```
 
 For CI/cross-platform release builds, tag a version:

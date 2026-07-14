@@ -15,5 +15,24 @@ else
   git clone https://github.com/anomalyco/opencode.git "$CAPIX_CODE_DIR"
   git -C "$CAPIX_CODE_DIR" checkout "$CAPIX_CODE_REF"
 fi
-git -C "$CAPIX_CODE_DIR" diff --quiet || { echo "✗ upstream tree has unstaged changes"; exit 1; }
-echo "✓ Pinned upstream ready: $(git -C "$CAPIX_CODE_DIR" rev-parse HEAD)"
+
+ACTUAL_REF="$(git -C "$CAPIX_CODE_DIR" rev-parse HEAD)"
+if [ "$ACTUAL_REF" != "$CAPIX_CODE_REF" ]; then
+  echo "✗ Source checkout is at $ACTUAL_REF; expected pinned ref $CAPIX_CODE_REF"
+  echo "  Use a new CAPIX_CODE_DIR or restore the pinned checkout before continuing."
+  exit 1
+fi
+
+# A prepared checkout is intentionally changed by scripts/rebrand.sh. Treat the
+# expected renamed package as an idempotent success, while still rejecting an
+# unrelated dirty checkout before the first rebrand.
+if [ -d "$CAPIX_CODE_DIR/packages/capix-code" ]; then
+  echo "✓ Pinned Capix Code source already prepared: $ACTUAL_REF"
+  exit 0
+fi
+
+git -C "$CAPIX_CODE_DIR" diff --quiet || {
+  echo "✗ Source tree has unstaged changes before Capix preparation"
+  exit 1
+}
+echo "✓ Pinned source ready: $ACTUAL_REF"

@@ -2,11 +2,15 @@
 #
 # dev.sh — launch capix-code in dev mode.
 #
-# Requires Bun 1.3+ (https://bun.sh).
+# Requires the repository-pinned Bun 1.3.14 runtime.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CAPIX_CODE_DIR="${CAPIX_CODE_DIR:-$DIR/upstream}"
+BUN="${BUN_BIN:-$(command -v bun || true)}"
+if [ -z "$BUN" ] && [ -x "$DIR/node_modules/.bin/bun" ]; then BUN="$DIR/node_modules/.bin/bun"; fi
+[ -n "$BUN" ] || { echo "✗ Bun 1.3.14 is required; install the pinned runtime first"; exit 1; }
+[ "$($BUN --version)" = "1.3.14" ] || { echo "✗ Expected Bun 1.3.14"; exit 1; }
 
 if [ ! -d "$CAPIX_CODE_DIR" ]; then
   echo "✗ No $CAPIX_CODE_DIR. Run ./scripts/bootstrap.sh first."
@@ -16,10 +20,10 @@ fi
 cd "$CAPIX_CODE_DIR"
 
 echo "▸ Installing dependencies (Bun)…"
-bun install
+"$BUN" install
 
 echo "▸ Writing default Capix config (if missing)…"
-bun run packages/capix-code/scripts/init-capix-config.ts 2>/dev/null || true
+"$BUN" run packages/capix-code/scripts/init-capix-config.ts 2>/dev/null || true
 
 echo "▸ Launching capix-code (dev mode)…"
 echo ""
@@ -28,4 +32,4 @@ echo "    export CAPIX_BASE_URL=https://capix.network/api/v1"
 echo "    export CAPIX_API_KEY=cpk_...   (or your deployed cpxllm_... key)"
 echo "    export CAPIX_MODEL=capix/auto   (optional — defaults to auto)"
 echo ""
-bun run --cwd packages/capix-code --conditions=browser src/index.ts "$@"
+"$BUN" run --cwd packages/capix-code --conditions=browser src/index.ts "$@"
