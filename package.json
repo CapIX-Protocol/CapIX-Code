@@ -1,17 +1,18 @@
 {
   "name": "capix-code",
   "version": "1.3.0",
-  "description": "Capix Code \u2014 AI coding agent with smart routing",
+  "description": "Capix Code \u2014 decentralized AI coding agent with GPU marketplace",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "capix-code": "bin/capix-code.cjs"
+    "capix-code": "./bin/capix-code.cjs"
   },
   "files": [
-    "bin/capix-code.cjs",
+    "bin/",
+    "scripts/",
+    "dist/customer/config/",
     "README.md",
-    "LICENSE",
-    "NOTICE"
+    "LICENSE"
   ],
   "engines": {
     "node": ">=20"
@@ -28,7 +29,8 @@
     "manifest:build": "node scripts/build-manifest.mjs",
     "resolve-version": "node scripts/resolve-version.mjs",
     "prepack": "node scripts/prepare-npm-meta.mjs",
-    "pack:npm-platform": "node scripts/prepare-npm-platform.mjs"
+    "pack:npm-platform": "node scripts/prepare-npm-platform.mjs",
+    "postinstall": "node scripts/postinstall.js"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.8",
@@ -63,5 +65,15 @@
     "@capix-code/linux-arm64": "1.2.7",
     "@capix-code/linux-x64": "1.2.7",
     "@capix-code/windows-x64": "1.2.7"
-  }
+  },
+  "keywords": [
+    "ai",
+    "coding",
+    "agent",
+    "gpu",
+    "llm",
+    "inference",
+    "capix",
+    "solana"
+  ]
 }
