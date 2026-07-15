@@ -251,14 +251,10 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-1.2.7` (package.json version baked at compile time)
-///
-/// The launcher cannot call `git` at runtime, so this is a compile-time
-/// constant fallback. The env-var override lets release pipelines stamp
-/// the exact `capix-code-{version}-{git_sha}` identity they shipped.
+/// 2. `capix-code-1.3.0` (package.json version baked at compile time)
 fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-1.2.7".to_string())
+        .unwrap_or_else(|_| "capix-code-1.3.0".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
@@ -556,10 +552,17 @@ fn login() -> Result<ExitCode, String> {
 }
 
 fn access_token() -> Result<String, String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string())?;
-    let refresh = entry
-        .get_password()
-        .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?;
+    // Try file-based credentials first (no Keychain prompt), then keyring.
+    let refresh = match read_refresh_from_file() {
+        Ok(token) => token,
+        Err(_) => {
+            match keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT) {
+                Ok(entry) => entry.get_password()
+                    .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?,
+                Err(e) => return Err(format!("not signed in; run `capix-code login` ({e})")),
+            }
+        }
+    };
     let token_result: Result<TokenResponse, String> = runtime()?.block_on(async {
         let response = http_client()?
             .post(format!("{WEB_ORIGIN}/oauth/token"))
@@ -582,17 +585,13 @@ fn access_token() -> Result<String, String> {
     let token = match token_result {
         Ok(value) => value,
         Err(_) => {
-            let _ = entry.delete_credential();
+            let _ = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).and_then(|e| e.delete_credential());
             return Err("session expired; run `capix-code login`".into());
         }
     };
-    // Delete the old credential before setting the rotated one.
-    let _ = entry.delete_credential();
-    entry
-        .set_password(&token.refresh_token)
-        .map_err(|e| e.to_string())?;
+    let _ = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).and_then(|e| e.delete_credential());
+    let _ = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).and_then(|e| e.set_password(&token.refresh_token));
 
-    // Sync the rotated refresh token to the file-based bridge store.
     if let Ok(home) = std::env::var("HOME") {
         let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
         let mut creds: serde_json::Value = std::fs::read(&cred_file)
@@ -613,6 +612,21 @@ fn access_token() -> Result<String, String> {
     }
 
     Ok(token.access_token)
+}
+
+fn read_refresh_from_file() -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|_| "HOME not set".to_string())?;
+    let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
+    let creds_bytes = std::fs::read(&cred_file)
+        .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?;
+    let creds: serde_json::Value = serde_json::from_slice(&creds_bytes)
+        .map_err(|e| format!("invalid credentials file: {e}"))?;
+    let key = format!("{}:{}", KEYRING_SERVICE, KEYRING_ACCOUNT);
+    creds
+        .get(&key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "not signed in; run `capix-code login`".to_string())
 }
 
 fn api_get(path: &str) -> Result<ExitCode, String> {
