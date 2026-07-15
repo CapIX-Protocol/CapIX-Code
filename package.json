@@ -30,7 +30,7 @@
     "resolve-version": "node scripts/resolve-version.mjs",
     "prepack": "node scripts/prepare-npm-meta.mjs",
     "pack:npm-platform": "node scripts/prepare-npm-platform.mjs",
-    "postinstall": "node scripts/postinstall.js"
+    "postinstall": "node scripts/postinstall.cjs"
   },
   "devDependencies": {
     "@ai-sdk/provider": "3.0.8",
