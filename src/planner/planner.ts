@@ -21,6 +21,7 @@ import { join } from 'node:path';
 
 import * as intelligence from '../intelligence-client.js';
 import { logger } from '../logger.js';
+import type { SubagentManager, SubagentConfig, SubagentResult } from './subagent.js';
 
 export interface PlanStep {
   id: string;
@@ -345,6 +346,61 @@ export class Planner {
     } else if (statuses.some((s) => s === 'failed')) {
       plan.status = 'failed';
     }
+  }
+
+  /** Execute the current plan step by step, delegating each step to a subagent. */
+  async execute(
+    subagentManager: SubagentManager,
+    context: { sessionID: string },
+    options?: { maxTurnsPerStep?: number; maxElapsedMsPerStep?: number },
+  ): Promise<{ completed: number; failed: number; results: SubagentResult[] }> {
+    const plan = this.currentPlan;
+    if (!plan) throw new Error('No plan to execute. Call plan() first.');
+
+    const results: SubagentResult[] = [];
+    let completed = 0;
+    let failed = 0;
+
+    for (const step of plan.steps) {
+      if (step.status === 'completed' || step.status === 'skipped') continue;
+
+      this.updateStep(plan.id, step.id, 'in-progress');
+
+      const config: SubagentConfig = {
+        role: 'implementation-agent',
+        planStep: step,
+        model: 'capix/auto',
+        maxTurns: options?.maxTurnsPerStep ?? 8,
+        maxElapsedMs: options?.maxElapsedMsPerStep ?? 120_000,
+        maxSpendUsdMinor: BigInt(500),
+        worktreePath: join(this.rootPath, '.capix', 'worktrees', step.id),
+        parentSessionId: context.sessionID,
+        allowedTools: ['read_file', 'edit_file', 'bash'],
+        filesystemScope: this.rootPath,
+        approvalRules: 'auto',
+      };
+
+      try {
+        const result = await subagentManager.spawn(config);
+        results.push(result);
+        if (result.status === 'completed') {
+          completed++;
+          this.updateStep(plan.id, step.id, 'completed');
+        } else {
+          failed++;
+          this.updateStep(plan.id, step.id, 'failed');
+        }
+      } catch (err) {
+        failed++;
+        this.updateStep(plan.id, step.id, 'failed');
+        results.push({
+          subagentId: 'failed', stepId: step.id, status: 'failed',
+          filesChanged: [], summary: String(err), costMinor: 0n, durationMs: 0, turns: 0,
+        });
+      }
+    }
+
+    return { completed, failed, results };
   }
 
   /** Get the current plan (most recently created/loaded). */

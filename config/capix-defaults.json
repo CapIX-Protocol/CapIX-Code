@@ -18,5 +18,16 @@
     "decimals": 9,
     "pricingSource": "protocol-reference",
     "maxPriceAgeSeconds": 60
+  },
+  "theme": {
+    "background": "#0a0e14",
+    "foreground": "#f1efe9",
+    "accent": "#3DCED6",
+    "success": "#14F195",
+    "error": "#ff5252",
+    "warning": "#FFAE00",
+    "muted": "#64748b",
+    "border": "#ffffff0f",
+    "surface": "#070b10"
   }
 }

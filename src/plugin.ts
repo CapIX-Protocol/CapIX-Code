@@ -24,7 +24,7 @@
 import { tool, type Plugin, type PluginInput, type Hooks, type AuthHook } from '@opencode-ai/plugin';
 import type { Permission } from '@opencode-ai/sdk';
 import { join, sep, relative, basename } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 
 import {
   capixProvider,
@@ -47,6 +47,7 @@ import {
   type ModelInvoker,
   type SubagentConfig,
   type SubagentResult,
+  type EngineCommandResolver,
   type PlanStep,
   type Plan,
 } from './planner/index.js';
@@ -512,7 +513,17 @@ export const plugin: Plugin = async (
   // exposes getOrientation() and findRelevantFiles() with the same shape).
   const modelInvoker = createModelInvoker(meta);
   const planner = new Planner(contextRetriever, modelInvoker, indexerRoot);
-  const subagentManager = new SubagentManager(indexerRoot);
+  const enginePath = process.env.CAPIX_CODE_ENGINE
+    || join('/Users/ruiqbal/Desktop/capix-code/dist/customer/engine', 'capix-engine');
+  const engineCommandResolver: EngineCommandResolver = (config) => {
+    if (!existsSync(enginePath)) return null;
+    const prompt = `Implement this step: ${config.planStep.description}\n\nFiles to read: ${config.planStep.filesToRead.join(', ') || 'none specified'}\nFiles to edit: ${config.planStep.filesToEdit.join(', ') || 'none specified'}\nFiles to create: ${config.planStep.filesToCreate.join(', ') || 'none specified'}\n\nAfter implementing, run: ${config.planStep.testsToRun.join(' && ') || 'echo no tests'}`;
+    return {
+      command: enginePath,
+      args: ['--non-interactive', '--prompt', prompt, '--max-turns', String(config.maxTurns)],
+    };
+  };
+  const subagentManager = new SubagentManager(indexerRoot, engineCommandResolver);
   const compactor = new ContextCompactor(modelInvoker);
   const skillsRt = new SkillsRuntime();
   for (const s of BUILTIN_SKILLS) {

@@ -699,6 +699,8 @@ fn uuid() -> String {
 }
 
 fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
+    use std::io::{self, Write};
+
     if prompt.is_empty() {
         return Err("a prompt is required".into());
     }
@@ -713,11 +715,11 @@ fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
     let payload = serde_json::json!({
         "model": "auto",
         "messages": [{"role": "user", "content": prompt.join(" ")}],
-        "stream": false,
-        "max_tokens": 256
+        "stream": true,
+        "max_tokens": 4096
     });
-    let body: serde_json::Value = runtime()?.block_on(async {
-        let response = http_client()?
+    runtime()?.block_on(async {
+        let mut response = http_client()?
             .post(format!("{WEB_ORIGIN}/api/v1/chat/completions"))
             .bearer_auth(token)
             .header("idempotency-key", request_id)
@@ -726,21 +728,74 @@ fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
             .await
             .map_err(|e| e.to_string())?;
         let status = response.status();
-        let text = response.text().await.map_err(|e| e.to_string())?;
         if !status.is_success() {
+            let text = response.text().await.map_err(|e| e.to_string())?;
             return Err(format!("Capix inference returned {status}: {text}"));
         }
-        serde_json::from_str(&text).map_err(|e| e.to_string())
+        let mut buf: Vec<u8> = Vec::new();
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        let mut receipt: Option<String> = None;
+        while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+            buf.extend_from_slice(&chunk);
+            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                let mut line_bytes: Vec<u8> = buf.drain(..=pos).collect();
+                line_bytes.pop();
+                if line_bytes.last() == Some(&b'\r') {
+                    line_bytes.pop();
+                }
+                if line_bytes.is_empty() {
+                    continue;
+                }
+                let line = std::str::from_utf8(&line_bytes).map_err(|e| e.to_string())?;
+                let data = match line
+                    .strip_prefix("data: ")
+                    .or_else(|| line.strip_prefix("data:"))
+                {
+                    Some(d) => d,
+                    None => continue,
+                };
+                if data.trim() == "[DONE]" {
+                    writeln!(out).map_err(|e| e.to_string())?;
+                    out.flush().map_err(|e| e.to_string())?;
+                    if let Some(r) = &receipt {
+                        eprintln!("receipt: {r}");
+                    }
+                    return Ok(());
+                }
+                let v: serde_json::Value =
+                    serde_json::from_str(data).map_err(|e| e.to_string())?;
+                if let Some(r) = v.pointer("/capix/receiptId").and_then(|c| c.as_str()) {
+                    receipt = Some(r.to_string());
+                }
+                if let Some(model) = v.pointer("/capix/route/model").and_then(|c| c.as_str()) {
+                    let region = v.pointer("/capix/route/region").and_then(|c| c.as_str()).unwrap_or("global");
+                    writeln!(out, "\n[routed to {} in {}]\n", model, region).map_err(|e| e.to_string())?;
+                    out.flush().map_err(|e| e.to_string())?;
+                }
+                if let Some(usage) = v.get("usage") {
+                    let input_t = usage.get("prompt_tokens").and_then(|c| c.as_u64()).unwrap_or(0);
+                    let output_t = usage.get("completion_tokens").and_then(|c| c.as_u64()).unwrap_or(0);
+                    let cost = v.pointer("/capix/costMinor").or_else(|| usage.get("cost_minor")).and_then(|c| c.as_str()).unwrap_or("0");
+                    writeln!(out, "\n[usage: {} input, {} output, cost: {} minor]\n", input_t, output_t, cost).map_err(|e| e.to_string())?;
+                    out.flush().map_err(|e| e.to_string())?;
+                }
+                if let Some(content) = v
+                    .pointer("/choices/0/delta/content")
+                    .and_then(|c| c.as_str())
+                {
+                    write!(out, "{content}").map_err(|e| e.to_string())?;
+                    out.flush().map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        writeln!(out).map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
+        if let Some(r) = &receipt {
+            eprintln!("receipt: {r}");
+        }
+        Ok::<(), String>(())
     })?;
-    let content = body
-        .pointer("/choices/0/message/content")
-        .and_then(|v| v.as_str())
-        .or_else(|| body.get("output_text").and_then(|v| v.as_str()))
-        .ok_or_else(|| "Capix inference response did not contain assistant content".to_string())?;
-    println!("{content}");
-    if let Some(receipt) = body.pointer("/capix/receiptId").and_then(|v| v.as_str()) {
-        eprintln!("receipt: {receipt}");
-    }
     Ok(ExitCode::SUCCESS)
 }
 
