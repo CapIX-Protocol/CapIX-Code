@@ -11,7 +11,7 @@
  */
 
 import { readFileSync, statSync } from 'node:fs';
-import { resolve, relative, basename, dirname, sep } from 'node:path';
+import { resolve, relative, basename, sep } from 'node:path';
 import type { CodebaseIndexer, SymbolNode, FileIndex, CodebaseIndex } from './indexer.js';
 
 export interface RetrievedFile {
@@ -572,7 +572,7 @@ export class ContextRetriever {
       }
     }
     const window = Math.floor(SLICE_WINDOW_LINES / 2);
-    let start = Math.max(0, bestLine - window);
+    const start = Math.max(0, bestLine - window);
     let end = Math.min(lines.length - 1, bestLine + window);
     // shrink to fit maxChars
     while (end > start && lines.slice(start, end + 1).join('\n').length > maxChars) {

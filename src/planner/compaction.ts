@@ -47,8 +47,6 @@ PREFERENCES: <comma-separated durable user preferences, or "none">
 COVENANTS: <comma-separated active covenant/rules invariants, or "none">
 SUMMARY: <one or two sentence factual summary of what was done and the current state>`;
 
-const COMPACT_TARGET_TOKENS = 1000;
-
 export class ContextCompactor {
   private readonly modelInvoker: ModelInvoker | null;
 

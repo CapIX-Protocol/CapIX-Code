@@ -23,7 +23,7 @@
 
 import { tool, type Plugin, type PluginInput, type Hooks, type AuthHook } from '@opencode-ai/plugin';
 import type { Permission } from '@opencode-ai/sdk';
-import { join, sep, relative, basename } from 'node:path';
+import { join, sep, basename } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
 
 import {
