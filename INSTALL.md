@@ -11,7 +11,7 @@ Never continue when a downloaded artifact does not match its adjacent SHA-256 fi
 ## Versioning
 
 Versions are immutable `vMAJOR.MINOR.PATCH` tags. The commands below pin
-CapixIDE `v1.2.13` and Capix Code `v1.2.7`, the current customer releases with
+CapixIDE `v1.4.0` and Capix Code `v1.4.0`, the current customer releases with
 attached customer artifacts and adjacent checksums. Do not substitute a newer
 tag unless its release page contains the exact archive and checksum filenames
 used below.
@@ -20,7 +20,7 @@ The Capix Code shell installer resolves `latest` to an immutable tag by setting
 `CAPIX_STABLE_VERSION` before download, rather than trusting mutable content:
 
 ```bash
-CAPIX_STABLE_VERSION=v1.2.7 bash scripts/install.sh latest
+CAPIX_STABLE_VERSION=v1.4.0 bash scripts/install.sh latest
 ```
 
 ## macOS
@@ -29,7 +29,7 @@ CAPIX_STABLE_VERSION=v1.2.7 bash scripts/install.sh latest
 
 ```bash
 set -euo pipefail
-IDE_VERSION=v1.2.13
+IDE_VERSION=v1.4.0
 IDE_ARCH=arm64
 IDE_NAME="CapixIDE-${IDE_VERSION}-darwin-${IDE_ARCH}-unsigned"
 IDE_URL="https://github.com/CapIX-Protocol/CapIX-IDE/releases/download/${IDE_VERSION}"
@@ -68,7 +68,7 @@ IDE_ARCH=x64
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.2.7
+CODE_VERSION=v1.4.0
 CODE_ARCH=arm64
 CODE_NAME="capix-code-${CODE_VERSION#v}-darwin-${CODE_ARCH}-unsigned"
 CODE_URL="https://github.com/CapIX-Protocol/CapIX-Code/releases/download/${CODE_VERSION}"
@@ -90,6 +90,9 @@ grep -q 'HOME/.local/bin' "${HOME}/.zshrc" 2>/dev/null || echo 'export PATH="$HO
 export PATH="${HOME}/.local/bin:${PATH}"
 
 capix-code --version
+capix-code auth status
+capix-code mcp doctor
+capix-code agent-runtime --stdio &
 capix-code doctor
 capix-code login
 ```
@@ -112,7 +115,7 @@ user's home directory and do not require sudo.
 
 ```bash
 set -euo pipefail
-IDE_VERSION=v1.2.13
+IDE_VERSION=v1.4.0
 case "$(uname -m)" in
   x86_64) IDE_ARCH=x64 ;;
   *) echo "No verified CapixIDE artifact is published for this Linux architecture"; exit 1 ;;
@@ -143,7 +146,7 @@ capixide
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.2.7
+CODE_VERSION=v1.4.0
 case "$(uname -m)" in
   x86_64) CODE_ARCH=x64 ;;
   aarch64|arm64) CODE_ARCH=arm64 ;;
@@ -168,6 +171,9 @@ ln -sfn "${HOME}/.local/share/capix-code/bin/capix-code" "${HOME}/.local/bin/cap
 export PATH="${HOME}/.local/bin:${PATH}"
 
 capix-code --version
+capix-code auth status
+capix-code mcp doctor
+capix-code agent-runtime --stdio &
 capix-code doctor
 capix-code login
 ```
@@ -186,7 +192,7 @@ Open **PowerShell** as the normal user. Administrator access is not required.
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$IdeVersion = "v1.2.13"
+$IdeVersion = "v1.4.0"
 $IdeName = "CapixIDE-$IdeVersion-win32-x64-unsigned"
 $IdeUrl = "https://github.com/CapIX-Protocol/CapIX-IDE/releases/download/$IdeVersion"
 $Download = Join-Path $env:USERPROFILE "Downloads"
@@ -215,7 +221,7 @@ The build is unsigned. If SmartScreen appears, select **More info**, verify the 
 
 ```powershell
 $ErrorActionPreference = "Stop"
-$CodeVersion = "v1.2.7"
+$CodeVersion = "v1.4.0"
 $CodeName = "capix-code-$($CodeVersion.TrimStart('v'))-win32-x64-unsigned"
 $CodeUrl = "https://github.com/CapIX-Protocol/CapIX-Code/releases/download/$CodeVersion"
 $Download = Join-Path $env:USERPROFILE "Downloads"
@@ -262,6 +268,9 @@ CapixIDE and Capix Code use browser authentication. Do not paste refresh tokens 
 
 ```bash
 capix-code --version
+capix-code auth status
+capix-code mcp doctor
+capix-code agent-runtime --stdio &
 capix-code doctor
 capix-code --help
 ```
@@ -303,6 +312,9 @@ test "$(bun --version)" = "1.3.14"
 ./scripts/rebrand.sh
 BUN_BIN="$(command -v bun)" ./scripts/build.sh
 ./dist/customer/bin/capix-code --version
+capix-code auth status
+capix-code mcp doctor
+capix-code agent-runtime --stdio &
 ./dist/customer/bin/capix-code doctor
 ```
 
@@ -333,7 +345,7 @@ The unsigned output is `VSCode-darwin-arm64/CapixIDE.app` on Apple silicon,
 Package and checksum a completed build with the version in `product.json`:
 
 ```bash
-./scripts/package-release.sh v1.2.13 darwin arm64
+./scripts/package-release.sh v1.4.0 darwin arm64
 ```
 
 Replace `darwin arm64` with the platform and architecture actually built. The

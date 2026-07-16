@@ -1722,13 +1722,41 @@ fn start_broker() {
 fn handle_broker_request(method: &str) -> serde_json::Value {
     match method {
         "auth.status" => {
-            let token_result = access_token();
-            serde_json::json!({
-                "ok": true,
-                "result": {
-                    "authenticated": token_result.is_ok(),
+            // Validate by actually calling the API, not just checking if key exists
+            match access_token() {
+                Ok(token) => {
+                    // Probe the API to check if the token is actually valid
+                    let valid = std::thread::spawn(move || {
+                        let runtime = tokio::runtime::Runtime::new().ok();
+                        if let Some(rt) = runtime {
+                            rt.block_on(async {
+                                let client = reqwest::Client::new();
+                                let res = client
+                                    .get(format!("{WEB_ORIGIN}/api/v1/me"))
+                                    .bearer_auth(&token)
+                                    .timeout(std::time::Duration::from_secs(5))
+                                    .send().await;
+                                res.map(|r| r.status().is_success()).unwrap_or(false)
+                            })
+                        } else {
+                            false
+                        }
+                    }).join().unwrap_or(false);
+                    serde_json::json!({
+                        "ok": true,
+                        "result": {
+                            "authenticated": valid,
+                        }
+                    })
                 }
-            })
+                Err(e) => serde_json::json!({
+                    "ok": true,
+                    "result": {
+                        "authenticated": false,
+                        "reason": e,
+                    }
+                })
+            }
         }
         "token.get" => {
             match access_token() {

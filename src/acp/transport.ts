@@ -54,6 +54,11 @@ async function handleRequest(request: AcpRequest): Promise<void> {
   try {
     switch (method) {
       case 'handshake': {
+        const clientVersion = params?.version as number ?? 0;
+        if (clientVersion !== ACP_VERSION) {
+          respond({ id, error: { code: 'version_mismatch', message: `Client version ${clientVersion} does not match runtime version ${ACP_VERSION}` } });
+          break;
+        }
         respond({ id, result: { version: ACP_VERSION, runtimeVersion: runtime.version, capabilities: ['sessions', 'streaming', 'tools', 'diffs', 'commands', 'models', 'receipts', 'workspace'] } });
         break;
       }
