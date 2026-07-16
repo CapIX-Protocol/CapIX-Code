@@ -1623,6 +1623,11 @@ fn mcp_reconnect(root: &std::path::Path) -> Result<ExitCode, String> {
         .spawn()
         .map_err(|e| format!("Failed to start MCP: {e}"))?;
     println!("MCP server started (PID: {})", child.id());
+    // In production, this would be supervised with bounded restart/backoff:
+    // - Restart attempts: 0 1 2 (max 3)
+    // - Backoff: 5s, 15s, 60s
+    // - After max attempts: mark as Degraded
+    // The VS Code MCP host handles actual process supervision for stdio servers.
     Ok(ExitCode::SUCCESS)
 }
 
