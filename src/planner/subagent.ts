@@ -110,6 +110,22 @@ export class SubagentManager {
     }
 
     const subagentId = randomUUID();
+    // Register this agent with the Capix Intelligence API for lineage tracking
+    try {
+      const intelligence = await import('../intelligence-client.js');
+      await intelligence.spawnAgent({
+        objective: config.planStep.description,
+        scope: { inBounds: [config.filesystemScope], outBounds: [] },
+        constraints: {
+          trustLevel: 'untested',
+          sandboxProfile: 'restricted',
+          costCeilingMinor: String(config.maxSpendUsdMinor),
+          forbiddenTools: [],
+        },
+        definitionOfDone: config.planStep.testsToRun.join(', ') || 'Complete the task',
+        parentAgentId: config.parentSessionId,
+      }).catch(() => {}); // Non-blocking: intelligence may not be configured
+    } catch {}
     const objective = config.planStep.description;
     const engineCmd = this.engineCommand?.(config) ?? null;
 
@@ -196,7 +212,22 @@ export class SubagentManager {
     }
 
     const summary = buildSummary(objective, status, exitCode, stdout, stderr);
-    const costMinor = 0n;
+    // Extract cost from the engine's route receipt events in stdout
+  // The engine emits lines like "receipt: r_abc123" and "usage: 30 input, 10 output tokens"
+  // The actual cost is tracked via the intelligence API's route receipt
+  let costMinor = 0n;
+  let receiptId: string | undefined;
+  const receiptMatch = stdout.match(/receipt:\s*(\S+)/);
+  const usageMatch = stdout.match(/usage:\s+(\d+)\s+input,\s+(\d+)\s+output/);
+  if (receiptMatch) {
+    receiptId = receiptMatch[1];
+    // In production, query the receipt from the intelligence API to get the real cost
+    // For now, estimate from token count (rough: $0.001 per 1K tokens)
+    const inputTokens = usageMatch ? parseInt(usageMatch[1]) : 0;
+    const outputTokens = usageMatch ? parseInt(usageMatch[2]) : 0;
+    const totalTokens = inputTokens + outputTokens;
+    costMinor = BigInt(Math.ceil(totalTokens * 0.001)); // micro-USD
+  }
 
     const workReceiptId = await this.recordReceipt(config, subagentId, costMinor, summary, status);
 
@@ -260,6 +291,8 @@ export class SubagentManager {
     try {
       const receipt = await intelligence.createWorkReceipt({
         kind: 'verification',
+      // Lineage tracked via agentId which is set above
+
         agentId: subagentId,
         costMinor: costMinor.toString(),
         asset: 'USD',
