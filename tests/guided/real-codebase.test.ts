@@ -7,7 +7,7 @@ import { Planner } from "../../src/planner/planner.js";
 import { SkillsRuntime } from "../../src/skills/runtime.js";
 import { BUILTIN_SKILLS } from "../../src/skills/builtin.js";
 
-const REPO_ROOT = "/Users/ruiqbal/Desktop/capix-protocol";
+const REPO_ROOT = process.env.CAPIX_TEST_REPO || "/Users/ruiqbal/Desktop/capix-protocol";
 
 describe.skip(inCI ? 'Real codebase (skipped in CI)' : "Guided Testing: Real Codebase", () => {
   let indexer: CodebaseIndexer;

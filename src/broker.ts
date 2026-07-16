@@ -57,7 +57,7 @@ export interface ApiKeyResult {
 export type AuthorizeResult = ExchangeResult | ApiKeyResult | { type: 'failed' };
 
 const SERVICE = 'capix-code';
-const ACCOUNT = 'capix-device-session';
+const ACCOUNT = 'oauth-refresh-token';
 
 /** Marker thrown when secure storage is unavailable and session fallback is used. */
 export class SecureStorageUnavailableError extends Error {
@@ -87,6 +87,10 @@ export class CredentialBroker {
   private sessionRefresh: string | null = null;
   private sessionAccess: AccessToken | null = null;
   private lastRefreshSeen: string | null = null;
+  /** Single-flight refresh: prevents concurrent refreshToken() calls from racing. */
+  private refreshPromise: Promise<void> | null = null;
+  /** Migration flag: true after legacy credential migration has been attempted. */
+  private migrated: boolean = false;
   private deviceSession: DeviceSession | null = null;
   private authorizeUrl: string | null = null;
   private authorizationCode: string | null = null;
@@ -143,6 +147,15 @@ export class CredentialBroker {
    * previously-seen refresh token (rotation breach) and revokes the device.
    */
   async refreshToken(): Promise<void> {
+    // Single-flight: if a refresh is already in progress, wait for it.
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = this._doRefresh();
+    try { await this.refreshPromise; } finally { this.refreshPromise = null; }
+  }
+
+  private async _doRefresh(): Promise<void> {
+    // Migrate legacy credentials on first use
+    if (!this.migrated) { this.migrated = true; await this.migrateLegacyCredentials(); }
     const refresh = await this.loadRefreshToken();
     if (!refresh) {
       throw new Error('capix-broker: not logged in');
@@ -416,6 +429,38 @@ export class CredentialBroker {
       await store!.delete(SERVICE, ACCOUNT);
     } catch (err) {
       logger.warn('capix-broker: clear failed — best effort', { error: (err as Error).message });
+    }
+  }
+
+  /**
+   * Migrate legacy credential identities to the canonical one.
+   * Old account name was 'capix-device-session'; new is 'oauth-refresh-token'.
+   */
+  private async migrateLegacyCredentials(): Promise<void> {
+    if (this.sessionOnly) return;
+    const store = (
+      globalThis as { capixSecureStore?: { get: (s: string, a: string) => Promise<string | null>; delete: (s: string, a: string) => Promise<void>; set: (s: string, a: string, v: string) => Promise<void> } }
+    ).capixSecureStore;
+    if (!store) return;
+    try {
+      // Check if legacy account has a token
+      const legacyToken = await store.get(SERVICE, 'capix-device-session');
+      if (legacyToken) {
+        // Write to canonical account
+        await store.set(SERVICE, ACCOUNT, legacyToken);
+        // Delete legacy
+        await store.delete(SERVICE, 'capix-device-session');
+        logger.info('capix-broker: migrated legacy credential identity', {});
+      }
+      // Also check file-based legacy key
+      const fileLegacy = await store.get(SERVICE, 'capix-code:capix-device-session');
+      if (fileLegacy && fileLegacy !== legacyToken) {
+        await store.set(SERVICE, ACCOUNT, fileLegacy);
+        await store.delete(SERVICE, 'capix-code:capix-device-session');
+        logger.info('capix-broker: migrated file-based legacy credential', {});
+      }
+    } catch (err) {
+      logger.warn('capix-broker: credential migration failed (non-fatal)', { error: (err as Error).message });
     }
   }
 

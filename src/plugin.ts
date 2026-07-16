@@ -513,8 +513,11 @@ export const plugin: Plugin = async (
   // exposes getOrientation() and findRelevantFiles() with the same shape).
   const modelInvoker = createModelInvoker(meta);
   const planner = new Planner(contextRetriever, modelInvoker, indexerRoot);
+  // Resolve the engine binary path from (1) env var set by launcher, (2) relative
+  // to the plugin's own directory, (3) standard install locations.
   const enginePath = process.env.CAPIX_CODE_ENGINE
-    || join('/Users/ruiqbal/Desktop/capix-code/dist/customer/engine', 'capix-engine');
+    || join(process.env.HOME || '/home/user', '.capix-code', 'engine', 'capix-engine')
+    || join(process.cwd(), 'dist', 'customer', 'engine', 'capix-engine');
   const engineCommandResolver: EngineCommandResolver = (config) => {
     if (!existsSync(enginePath)) return null;
     const prompt = `Implement this step: ${config.planStep.description}\n\nFiles to read: ${config.planStep.filesToRead.join(', ') || 'none specified'}\nFiles to edit: ${config.planStep.filesToEdit.join(', ') || 'none specified'}\nFiles to create: ${config.planStep.filesToCreate.join(', ') || 'none specified'}\n\nAfter implementing, run: ${config.planStep.testsToRun.join(' && ') || 'echo no tests'}`;
@@ -728,7 +731,7 @@ export const plugin: Plugin = async (
           }
           servers.capix = {
             type: 'local',
-            command: ['npx', '-y', '@capix/mcp', 'server', '--stdio'],
+            command: ['npx', '-y', 'capix-mcp', 'server', '--stdio'],
             enabled: true,
             ...(apiKey ? { environment: { CAPIX_API_KEY: apiKey } } : {}),
           };
