@@ -115,9 +115,9 @@ export class SubagentManager {
       const intelligence = await import('../intelligence-client.js');
       await intelligence.spawnAgent({
         objective: config.planStep.description,
-        scope: { inBounds: [config.filesystemScope], outBounds: [] },
+        scope: { inBounds: [config.filesystemScope], outOfBounds: [] },
         constraints: {
-          trustLevel: 'untested',
+          trustLevel: 'untrusted',
           sandboxProfile: 'restricted',
           costCeilingMinor: String(config.maxSpendUsdMinor),
           forbiddenTools: [],
