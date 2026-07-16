@@ -51,6 +51,7 @@ import {
   type PlanStep,
   type Plan,
 } from './planner/index.js';
+import { SPECIALIST_AGENTS, getSpecialist } from './planner/specialists.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 
 export const CAPIX_PLUGIN_VERSION = '1.4.0';
@@ -670,18 +671,22 @@ export const plugin: Plugin = async (
         estimatedTurns: args.maxTurns ?? 8,
         status: 'in-progress',
       };
+      // Use specialist agent if specified, otherwise default to implement
+      const specialistRole = (args as any).specialist || 'implement';
+      const specialist = getSpecialist(specialistRole) ?? SPECIALIST_AGENTS.implement;
+
       const config: SubagentConfig = {
-        role: 'implementation-agent',
+        role: specialist.role,
         planStep,
         model: args.model ?? 'capix/auto',
-        maxTurns: args.maxTurns ?? 8,
-        maxElapsedMs: args.maxElapsedMs ?? 120_000,
-        maxSpendUsdMinor: BigInt(args.maxSpendUsdMinor ?? '500'),
+        maxTurns: specialist.maxTurns,
+        maxElapsedMs: specialist.maxElapsedMs,
+        maxSpendUsdMinor: specialist.maxSpendUsdMinor,
         worktreePath: join(worktreeRoot, '.capix', 'worktrees', stepId),
         parentSessionId: context.sessionID,
-        allowedTools: ['read_file', 'edit_file', 'bash'],
+        allowedTools: specialist.allowedTools,
         filesystemScope: worktreeRoot,
-        approvalRules: 'ask-parent',
+        approvalRules: specialist.fileScope === 'read-only' ? 'auto' : 'ask-parent',
       };
       const result = await subagentManager.spawn(config);
       return {
