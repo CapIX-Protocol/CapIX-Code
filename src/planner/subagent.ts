@@ -124,6 +124,7 @@ export class SubagentManager {
         },
         definitionOfDone: config.planStep.testsToRun.join(', ') || 'Complete the task',
         parentAgentId: config.parentSessionId,
+        source: 'capix-code:subagent',
       }).catch(() => {}); // Non-blocking: intelligence may not be configured
     } catch {}
     const objective = config.planStep.description;

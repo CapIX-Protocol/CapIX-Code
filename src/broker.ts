@@ -6,7 +6,7 @@
  * - master prompt C3 (Native credential broker)
  *
  * Wire obligations:
- * - keeps refresh token / device key out of OpenCode, plugins, shell tools,
+ * - keeps refresh token / device key out of plugins and shell tools, plugins, shell tools,
  *   args, config, environment, logs and crash bundles;
  * - obtains audience/project-scoped short-lived access tokens with refresh
  *   rotation and reuse detection;
