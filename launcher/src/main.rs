@@ -79,6 +79,11 @@ enum Command {
         #[command(subcommand)]
         subcommand: DevCommand,
     },
+    /// MCP server management
+    Mcp {
+        #[command(subcommand)]
+        subcommand: McpCommand,
+    },
     /// Solana transaction inspection (read-only; never holds keypairs)
     Solana {
         #[command(subcommand)]
@@ -183,6 +188,17 @@ enum AuthCommand {
     Reset,
 }
 
+#[derive(Subcommand)]
+enum McpCommand {
+    /// Check MCP server status
+    Status,
+    /// Run MCP diagnostics
+    Doctor,
+    /// Restart the MCP server
+    Reconnect,
+}
+
+
 fn install_root() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate launcher: {e}"))?;
     // User-local installs expose the launcher through a PATH symlink. Resolve
@@ -251,10 +267,10 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-1.3.0` (package.json version baked at compile time)
+/// 2. `capix-code-1.4.0` (package.json version baked at compile time)
 fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-1.3.0".to_string())
+        .unwrap_or_else(|_| "capix-code-1.4.0".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
@@ -1511,6 +1527,99 @@ fn doctor(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+
+/// Check MCP server status
+fn mcp_status(root: &std::path::Path) -> Result<ExitCode, String> {
+    let mcp_path = root.join("mcp").join("capix-mcp.js");
+    if !mcp_path.is_file() {
+        println!("MCP: Not installed (bundled path missing: {})", mcp_path.display());
+        return Ok(ExitCode::FAILURE);
+    }
+    let token = access_token().ok();
+    if token.is_none() {
+        println!("MCP: Not authenticated");
+        return Ok(ExitCode::FAILURE);
+    }
+    println!("MCP: Installed at {}", mcp_path.display());
+    println!("MCP: Authenticated");
+    println!("MCP: Start with: capix-code mcp reconnect");
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Run MCP diagnostics
+fn mcp_doctor(root: &std::path::Path) -> Result<ExitCode, String> {
+    println!("=== Capix MCP Doctor ===");
+    // 1. Check bundled MCP exists
+    let mcp_path = root.join("mcp").join("capix-mcp.js");
+    if mcp_path.is_file() {
+        println!("✓ MCP bundled: {}", mcp_path.display());
+    } else {
+        println!("✗ MCP not bundled: {}", mcp_path.display());
+        return Ok(ExitCode::FAILURE);
+    }
+    // 2. Check auth
+    match access_token() {
+        Ok(_) => println!("✓ Authenticated"),
+        Err(e) => {
+            println!("✗ Not authenticated: {}", e);
+            return Ok(ExitCode::FAILURE);
+        }
+    }
+    // 3. Check node
+    match std::process::Command::new("node").arg("--version").output() {
+        Ok(o) if o.status.success() => {
+            let v = String::from_utf8_lossy(&o.stdout);
+            println!("✓ Node.js: {}", v.trim());
+        }
+        _ => {
+            println!("✗ Node.js not found");
+            return Ok(ExitCode::FAILURE);
+        }
+    }
+    // 4. Check MCP dependencies
+    let sdk_path = root.join("mcp").join("node_modules").join("@modelcontextprotocol");
+    if sdk_path.is_dir() {
+        println!("✓ MCP SDK present");
+    } else {
+        println!("✗ MCP SDK missing");
+        return Ok(ExitCode::FAILURE);
+    }
+    let zod_path = root.join("mcp").join("node_modules").join("zod");
+    if zod_path.is_dir() {
+        println!("✓ Zod present");
+    } else {
+        println!("✗ Zod missing");
+        return Ok(ExitCode::FAILURE);
+    }
+    println!("");
+    println!("MCP health: OK");
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Reconnect MCP server
+fn mcp_reconnect(root: &std::path::Path) -> Result<ExitCode, String> {
+    let mcp_path = root.join("mcp").join("capix-mcp.js");
+    if !mcp_path.is_file() {
+        return Err("MCP not bundled. Run capix-code doctor for diagnostics.".into());
+    }
+    let token = access_token()?;
+    // Start MCP server in a subprocess
+    let env_token = std::env::var("CAPIX_API_KEY").unwrap_or_default();
+    let child = std::process::Command::new("node")
+        .arg(mcp_path)
+        .arg("server")
+        .arg("--stdio")
+        .env("CAPIX_API_KEY", if env_token.is_empty() { token } else { env_token })
+        .env("CAPIX_BASE_URL", WEB_ORIGIN)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to start MCP: {e}"))?;
+    println!("MCP server started (PID: {})", child.id());
+    Ok(ExitCode::SUCCESS)
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let root = match install_root() {
@@ -1546,6 +1655,11 @@ fn main() -> ExitCode {
             a.extend(cli.engine_args);
             run_engine(&root, &a)
         }
+        Command::Mcp { subcommand } => match subcommand {
+            McpCommand::Status => mcp_status(&root),
+            McpCommand::Doctor => mcp_doctor(&root),
+            McpCommand::Reconnect => mcp_reconnect(&root),
+        },
         Command::LlmRun { prompt } => llm_run(&prompt),
         Command::GpuStatus => api_get("/api/v1/gpu"),
         Command::Account => api_get("/api/v1/me"),

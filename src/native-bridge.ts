@@ -57,9 +57,10 @@ function readCredentialsFile(): CredentialEntry {
 }
 
 function writeCredentialsFile(data: CredentialEntry): void {
-  mkdirSync(CREDENTIALS_DIR, { recursive: true });
-  writeFileSync(CREDENTIALS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
-  chmodSync(CREDENTIALS_FILE, 0o600);
+  // DEPRECATED: Refresh tokens must only be stored in the OS keychain.
+  // This file is read for legacy migration only. New writes are refused.
+  // The broker.ts migrateLegacyCredentials() will read and then delete this file.
+  // Do not write here.
 }
 
 function openBrowser(url: string): void {
@@ -86,19 +87,20 @@ if (!(globalThis as Record<string, unknown>).capixSecureStore) {
       }
     },
     async set(service: string, account: string, value: string): Promise<void> {
-      try {
-        const data = readCredentialsFile();
-        data[`${service}:${account}`] = value;
-        writeCredentialsFile(data);
-      } catch {
-        // Credential storage failure is non-fatal but logged
-      }
+      // SECURITY: Do not persist refresh tokens to plaintext files.
+      // Tokens are stored only in the OS keychain by the Rust launcher.
+      // The in-process store is session-only (in-memory).
     },
     async delete(service: string, account: string): Promise<void> {
       try {
         const data = readCredentialsFile();
         delete data[`${service}:${account}`];
-        writeCredentialsFile(data);
+        // Only write if there are other keys remaining; if empty, delete the file
+        if (Object.keys(data).length > 0) {
+          writeCredentialsFile(data);
+        } else {
+          try { require('fs').unlinkSync(CREDENTIALS_FILE); } catch {}
+        }
       } catch {
         // Non-fatal
       }

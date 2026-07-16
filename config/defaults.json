@@ -54,7 +54,7 @@
   "mcp": {
     "capix": {
       "type": "local",
-      "command": ["npx", "-y", "capix-mcp", "server", "--stdio"],
+      "command": ["node", "~/.capix-code/mcp/capix-mcp.js", "server", "--stdio"],
       "enabled": true,
       "environment": {}
     }

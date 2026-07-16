@@ -1,6 +1,6 @@
 {
   "name": "capix-code",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Capix Code \u2014 decentralized AI coding agent with GPU marketplace",
   "license": "Apache-2.0",
   "type": "module",
@@ -60,11 +60,11 @@
     ]
   },
   "optionalDependencies": {
-    "@capix-code/darwin-arm64": "1.2.7",
-    "@capix-code/darwin-x64": "1.2.7",
-    "@capix-code/linux-arm64": "1.2.7",
-    "@capix-code/linux-x64": "1.2.7",
-    "@capix-code/windows-x64": "1.2.7"
+    "@capix-code/darwin-arm64": "1.4.0",
+    "@capix-code/darwin-x64": "1.4.0",
+    "@capix-code/linux-arm64": "1.4.0",
+    "@capix-code/linux-x64": "1.4.0",
+    "@capix-code/windows-x64": "1.4.0"
   },
   "keywords": [
     "ai",

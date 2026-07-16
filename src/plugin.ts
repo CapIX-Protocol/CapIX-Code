@@ -53,7 +53,7 @@ import {
 } from './planner/index.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 
-export const CAPIX_PLUGIN_VERSION = '1.2.7';
+export const CAPIX_PLUGIN_VERSION = '1.4.0';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -731,7 +731,7 @@ export const plugin: Plugin = async (
           }
           servers.capix = {
             type: 'local',
-            command: ['npx', '-y', 'capix-mcp', 'server', '--stdio'],
+            command: [process.env.CAPIX_MCP_PATH || require('path').join(process.env.HOME || '/home/user', '.capix-code', 'mcp', 'capix-mcp.js'), 'server', '--stdio'],
             enabled: true,
             ...(apiKey ? { environment: { CAPIX_API_KEY: apiKey } } : {}),
           };
