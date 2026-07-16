@@ -157,6 +157,11 @@ export interface AgentRuntime {
   getDiff(sessionId: string, filePath?: string): Promise<{ filePath: string; diff: string }[]>;
   applyPatch(sessionId: string, filePath: string, patch: string): Promise<void>;
 
+  // ── Child sessions / specialist agents ────────────────────────────────
+  createChildSession(parentSessionId: string, role: string, mandate: string): Promise<Session>;
+  listChildSessions(parentSessionId: string): Promise<Session[]>;
+  cancelChildSession(sessionId: string): Promise<void>;
+
   runCommand(
     sessionId: string,
     command: string,

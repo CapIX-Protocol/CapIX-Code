@@ -52,6 +52,7 @@ import {
   type Plan,
 } from './planner/index.js';
 import { SPECIALIST_AGENTS, getSpecialist } from './planner/specialists.js';
+import { McpSupervisor, type McpHealth } from './mcp-supervisor.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 
 export const CAPIX_PLUGIN_VERSION = '1.4.0';
@@ -532,6 +533,22 @@ export const plugin: Plugin = async (
   const skillsRt = new SkillsRuntime();
   for (const s of BUILTIN_SKILLS) {
     await skillsRt.install(s);
+    // Register with the Capix Intelligence API (server-backed skill registry)
+    try {
+      const intelligence = await import("./intelligence-client.js");
+      await intelligence.registerSkill({
+        source: `first-party:${s.id}`,
+        name: s.name,
+        description: s.description,
+        version: s.version,
+        firstParty: true,
+        family: s.id,
+        riskClass: s.permissions.includes("bash") ? "elevated" : "standard",
+        permissions: s.permissions,
+        networkPolicy: { allowedHosts: [] },
+        handler: "plugin-local",
+      }).catch(() => {}); // Non-blocking
+    } catch {}
   }
 
   // Rolling transcript for loss-aware compaction + latest task for skill
@@ -703,6 +720,9 @@ export const plugin: Plugin = async (
     },
   });
 
+  // ── MCP Supervisor ─────────────────────────────────────────────────────
+  const mcpSupervisor = new McpSupervisor();
+  
   const capixHook = createCapixProviderHook();
 
   logger.info('capix plugin loaded', {
@@ -715,7 +735,7 @@ export const plugin: Plugin = async (
     // ── Provider registration (real ProviderHook) ────────────────────────
     provider: capixHook as Hooks['provider'],
 
-    // ── Config: zero-config Capix MCP registration ───────────────────────
+    // ── Config: zero-config Capix MCP registration with supervision ────────
     // The OpenCode config is user-owned, so instead of writing to the file we
     // inject the Capix MCP server programmatically here. The env is filled at
     // runtime with the broker access token (never persisted to the config

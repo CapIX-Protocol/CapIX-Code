@@ -303,6 +303,42 @@ export class CapixAgentRuntime implements AgentRuntime {
     // In the real implementation, this applies a git patch to the workspace
   }
 
+  async createChildSession(parentSessionId: string, role: string, mandate: string): Promise<Session> {
+    const parentId = parentSessionId;
+    const session = await this.createSession({ modelId: 'capix/auto', instructions: mandate });
+    // Link child to parent
+    const child = loadSession(session.id);
+    if (child) {
+      (child as any).parentSessionId = parentId;
+      (child as any).role = role;
+      saveSession(child);
+    }
+    return session;
+  }
+
+  async listChildSessions(parentSessionId: string): Promise<Session[]> {
+    ensureSessionsDir();
+    const files = readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'));
+    const children: Session[] = [];
+    for (const file of files) {
+      try {
+        const data = JSON.parse(readFileSync(join(SESSIONS_DIR, file), 'utf8'));
+        if (data.parentSessionId === parentSessionId) {
+          children.push(this.stripSession(data));
+        }
+      } catch {}
+    }
+    return children;
+  }
+
+  async cancelChildSession(sessionId: string): Promise<void> {
+    const session = loadSession(sessionId);
+    if (!session) return;
+    session.status = 'failed';
+    session.updatedAt = new Date().toISOString();
+    saveSession(session);
+  }
+
   async runCommand(
     sessionId: string,
     command: string,

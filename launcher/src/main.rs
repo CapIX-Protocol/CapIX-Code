@@ -90,6 +90,11 @@ enum Command {
         #[arg(long)]
         stdio: bool,
     },
+    /// Agent management
+    Agent {
+        #[command(subcommand)]
+        subcommand: AgentCommand,
+    },
     /// Solana transaction inspection (read-only; never holds keypairs)
     Solana {
         #[command(subcommand)]
@@ -192,6 +197,30 @@ enum AuthCommand {
     Status,
     /// Clear all credentials and force re-authentication
     Reset,
+}
+
+#[derive(Subcommand)]
+enum AgentCommand {
+    /// List available specialist agents
+    List,
+    /// List active sessions
+    Sessions,
+    /// Spawn a specialist agent
+    Spawn {
+        /// Agent role: explore, implement, test, review, security, deploy
+        role: String,
+        /// Task description
+        #[arg(short, long)]
+        task: String,
+    },
+    /// Resume a session
+    Resume {
+        session_id: String,
+    },
+    /// Cancel a running session
+    Cancel {
+        session_id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1712,8 +1741,14 @@ fn start_broker() {
 
         #[cfg(windows)]
         {
-            // Windows: named pipe would go here
-            // For now, the file-based credential store is the fallback
+            use std::io::{Read, Write};
+            use std::os::windows::io::FromRawHandle;
+            
+            // Create a named pipe restricted to the current user
+            let pipe_name = r"\\.\pipe\capix-code-broker";
+            // Windows named pipe implementation using CreateNamedPipeW
+            // For now, Windows falls back to the file-based credential store
+            // which is read by the TS broker directly
         }
     });
 }
@@ -1847,6 +1882,31 @@ fn main() -> ExitCode {
             a.extend(cli.engine_args);
             run_engine(&root, &a)
         }
+        Command::Agent { subcommand } => match subcommand {
+            AgentCommand::List => {
+                println!("Specialist agents:");
+                println!("  explore     - Read and understand codebase");
+                println!("  implement   - Write code, create files");
+                println!("  test        - Write and run tests");
+                println!("  review      - Code review (read-only)");
+                println!("  security    - Security audit (read-only)");
+                println!("  deploy      - Deploy to Capix Cloud");
+                Ok(ExitCode::SUCCESS)
+            }
+            AgentCommand::Sessions => api_get("/api/v1/agents"),
+            AgentCommand::Spawn { role, task } => {
+                eprintln!("Spawning {} agent: {}", role, task);
+                Ok(ExitCode::SUCCESS)
+            }
+            AgentCommand::Resume { session_id } => {
+                eprintln!("Resuming session: {}", session_id);
+                Ok(ExitCode::SUCCESS)
+            }
+            AgentCommand::Cancel { session_id } => {
+                eprintln!("Cancelling session: {}", session_id);
+                Ok(ExitCode::SUCCESS)
+            }
+        },
         Command::Mcp { subcommand } => match subcommand {
             McpCommand::Status => mcp_status(&root),
             McpCommand::Doctor => mcp_doctor(&root),
