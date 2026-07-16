@@ -543,7 +543,7 @@ export const plugin: Plugin = async (
         version: s.version,
         firstParty: true,
         family: s.id,
-        riskClass: s.permissions.includes("bash") ? "elevated" : "standard",
+        riskClass: s.permissions.includes("bash") ? "side-effect" : "informational",
         permissions: s.permissions,
         networkPolicy: { allowedHosts: [] },
         handler: "plugin-local",
