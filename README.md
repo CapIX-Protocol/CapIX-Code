@@ -102,6 +102,8 @@ The default config (`config/defaults.json`) registers:
 | Base URL                | `CAPIX_BASE_URL` env var (defaults to `https://capix.network/api/v1`)           |
 | API Key                 | `CAPIX_API_KEY` env var                                                         |
 | Default Model           | `CAPIX_MODEL` env var (defaults to `capix/auto` — smart route)                  |
+| Preferred Route         | `CAPIX_PREFERRED_PROVIDER` (`auto` mixes OpenRouter + UsePod with failover)     |
+| Preferred Auto Model    | `CAPIX_PREFERRED_MODEL` (optional; empty keeps task-aware model selection)      |
 | Smart Route: Classifier | `capix/supergemma-gemma3-4b` via Capix gateway (cached per session)             |
 | Smart Route: Reasoning  | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-27b` |
 | Smart Route: Coding     | Live catalog (keyword + memory-matched), fallback `capix/supergemma-gemma3-4b`  |
@@ -110,6 +112,17 @@ The default config (`config/defaults.json`) registers:
 | Autoupdate              | Disabled (IDE manages updates)                                                  |
 
 Override anything in `~/.config/capix-code/capix-code.json` or the project-level `capix-code.json`.
+
+The default `auto` route mixes OpenRouter and UsePod by live price and availability.
+An explicit route is a preference, not a hard lock: Capix tries it first and falls back
+to another enabled route. Surplus is temporarily paused in production, so a
+saved Surplus preference safely falls through. Example:
+
+```bash
+export CAPIX_PREFERRED_PROVIDER=openrouter
+export CAPIX_PREFERRED_MODEL=google/gemini-2.5-flash-lite
+capix-code
+```
 
 ## Contributing
 

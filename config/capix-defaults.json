@@ -1,6 +1,8 @@
 {
   "provider": "capix",
   "model": "capix/auto",
+  "preferredProvider": "auto",
+  "preferredModel": "",
   "apiBaseUrl": "https://www.capix.network/api/v1",
   "inferenceBaseUrl": "https://www.capix.network/api/v1",
   "updateBaseUrl": "https://www.capix.network/api/v1",

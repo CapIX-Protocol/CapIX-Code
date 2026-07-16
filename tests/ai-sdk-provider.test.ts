@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const streamMock = vi.fn();
 
 import { CapixLanguageModel } from '../src/ai-sdk-provider';
+import { readPreferredProvider } from '../src/capix-provider';
 
 const call = {
   prompt: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hello' }] }],
@@ -20,6 +21,13 @@ async function collect(stream: ReadableStream<unknown>) {
 }
 
 describe('bundled Capix AI SDK provider', () => {
+  it('normalizes route preference and fails safe to auto', () => {
+    process.env.CAPIX_PREFERRED_PROVIDER = 'openrouter';
+    expect(readPreferredProvider()).toBe('openrouter');
+    process.env.CAPIX_PREFERRED_PROVIDER = 'unknown-lane';
+    expect(readPreferredProvider()).toBe('auto');
+    delete process.env.CAPIX_PREFERRED_PROVIDER;
+  });
   beforeEach(() => streamMock.mockReset());
 
   it('loads through the local package name OpenCode receives from api.npm', async () => {

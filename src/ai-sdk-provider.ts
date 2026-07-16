@@ -20,6 +20,8 @@ export interface CapixAiSdkProviderOptions {
   projectId?: string;
   savedPolicyId?: string;
   privateEndpointId?: string;
+  preferredProvider?: 'auto' | 'openrouter' | 'surplus' | 'usepod';
+  preferredModel?: string;
   meta?: Partial<CapixClientMeta>;
   /** Test/native injection point; defaults to the strict broker-backed transport. */
   transport?: typeof capixStream;
@@ -107,6 +109,8 @@ export class CapixLanguageModel implements LanguageModelV2 {
       projectId: this.config.projectId,
       savedPolicyId: this.config.savedPolicyId,
       privateEndpointId: this.config.privateEndpointId,
+      preferredProvider: this.config.preferredProvider,
+      preferredModel: this.config.preferredModel,
       maxTokens: options.maxOutputTokens,
       temperature: options.temperature,
       meta: { ...DEFAULT_META, ...this.config.meta, client: 'capix-code' },

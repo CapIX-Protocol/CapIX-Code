@@ -52,6 +52,8 @@ declare module '@capix/contracts' {
     | CapixErrorEvent;
   export interface InferenceRequest {
     model: string;
+    preferredProvider?: 'auto' | 'openrouter' | 'surplus' | 'usepod';
+    preferredModel?: string;
     messages: Array<{ role: string; content: string }>;
     stream?: boolean;
     maxTokens?: number;

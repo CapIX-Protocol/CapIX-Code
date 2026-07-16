@@ -44,6 +44,11 @@ import { buildInferenceUrl, buildModelsUrl, buildUrl, validateBaseUrl } from './
 export const CAPIX_API_BASE = 'https://www.capix.network/api/v1';
 export const CAPIX_INFERENCE_BASE = 'https://www.capix.network/api/v1';
 
+export function readPreferredProvider(): 'auto' | 'openrouter' | 'surplus' | 'usepod' {
+  const value = process.env.CAPIX_PREFERRED_PROVIDER?.trim().toLowerCase();
+  return value === 'openrouter' || value === 'surplus' || value === 'usepod' ? value : 'auto';
+}
+
 /** Client/release identification attached to every request. */
 export interface CapixClientMeta {
   releaseId: string;
@@ -63,6 +68,10 @@ export interface CapixStreamOptions {
   savedPolicyId?: string;
   /** Owned private endpoint id (stable model target), if selected. */
   privateEndpointId?: string;
+  /** Preferred Capix route; the control plane falls back if it is unavailable. */
+  preferredProvider?: 'auto' | 'openrouter' | 'surplus' | 'usepod';
+  /** Preferred model when the active target is capix/auto. */
+  preferredModel?: string;
   /** Client/release metadata attached as headers. */
   meta: CapixClientMeta;
   /** Max output tokens, if the engine set one. */
@@ -372,6 +381,8 @@ export async function* stream(
     projectId: options.projectId,
     savedPolicyId: options.savedPolicyId,
     privateEndpointId: options.privateEndpointId,
+    preferredProvider: options.preferredProvider ?? readPreferredProvider(),
+    preferredModel: options.preferredModel ?? (process.env.CAPIX_PREFERRED_MODEL?.trim() || undefined),
   };
 
   let refreshed = false;
