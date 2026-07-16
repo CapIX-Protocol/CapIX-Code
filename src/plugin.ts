@@ -537,16 +537,13 @@ export const plugin: Plugin = async (
     try {
       const intelligence = await import("./intelligence-client.js");
       await intelligence.registerSkill({
+        id: s.id,
         source: `first-party:${s.id}`,
-        name: s.name,
-        description: s.description,
         version: s.version,
-        firstParty: true,
-        family: s.id,
+        description: s.description,
         riskClass: s.permissions.includes("bash") ? "side-effect" : "informational",
         permissions: s.permissions,
-        networkPolicy: { allowedHosts: [] },
-        handler: "plugin-local",
+        trustFloor: "untrusted",
       }).catch(() => {}); // Non-blocking
     } catch {}
   }
