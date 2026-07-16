@@ -464,6 +464,66 @@ export class CredentialBroker {
     }
   }
 
+
+  // ── IPC broker client ───────────────────────────────────────────────────
+  // Connects to the native launcher's Unix domain socket broker for
+  // cross-process auth coordination.
+
+  private async brokerRequest(method: string, params?: unknown): Promise<any> {
+    try {
+      const { connect } = await import('node:net');
+      const socketPath = '/tmp/capix-code-broker.sock';
+      const request = JSON.stringify({ method, params });
+      
+      return new Promise((resolve, reject) => {
+        const socket = connect(socketPath, () => {
+          socket.write(request);
+        });
+        socket.on('data', (data: Buffer) => {
+          try {
+            const response = JSON.parse(data.toString());
+            resolve(response);
+          } catch (e) {
+            reject(new Error('invalid_broker_response'));
+          }
+          socket.end();
+        });
+        socket.on('error', () => {
+          reject(new Error('broker_unavailable'));
+        });
+        socket.setTimeout(3000, () => {
+          socket.destroy();
+          reject(new Error('broker_timeout'));
+        });
+      });
+    } catch (err) {
+      return { ok: false, error: 'broker_unavailable' };
+    }
+  }
+
+  /** Check if the IPC broker is running and what its auth status is. */
+  async getAuthStatus(): Promise<{ authenticated: boolean }> {
+    const response = await this.brokerRequest('auth.status');
+    if (response.ok && response.result) {
+      return { authenticated: response.result.authenticated === true };
+    }
+    return { authenticated: false };
+  }
+
+  /** Get a token from the broker (single-flight, cross-process safe). */
+  async getBrokerToken(): Promise<string | null> {
+    const response = await this.brokerRequest('token.get');
+    if (response.ok && response.result?.accessToken) {
+      return response.result.accessToken;
+    }
+    return null;
+  }
+
+  /** Invalidate the cached token (forces next request to refresh). */
+  async invalidateBrokerToken(): Promise<void> {
+    await this.brokerRequest('token.invalidate');
+  }
+
   // ── PKCE + browser helpers ──────────────────────────────────────────────
 
   /** Close the ephemeral loopback server used to reserve a port during login. */

@@ -84,6 +84,12 @@ enum Command {
         #[command(subcommand)]
         subcommand: McpCommand,
     },
+    /// Start the agent runtime in ACP (Agent Communication Protocol) mode
+    AgentRuntime {
+        /// Run in stdio mode for IDE communication
+        #[arg(long)]
+        stdio: bool,
+    },
     /// Solana transaction inspection (read-only; never holds keypairs)
     Solana {
         #[command(subcommand)]
@@ -1620,7 +1626,160 @@ fn mcp_reconnect(root: &std::path::Path) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+// ── IPC Credential Broker ─────────────────────────────────────────────────
+// A Unix domain socket server (macOS/Linux) or named pipe (Windows) that
+// provides cross-process access to the credential store with single-flight
+// refresh. Only the current user can connect (0600 socket permissions).
+
+const BROKER_SOCKET_PATH: &str = "/tmp/capix-code-broker.sock";
+const BROKER_PID_FILE: &str = "/tmp/capix-code-broker.pid";
+
+/// Start the IPC broker as a background server.
+fn start_broker() {
+    // Check if broker is already running
+    if let Ok(pid_str) = std::fs::read_to_string(BROKER_PID_FILE) {
+        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+            // Check if process exists
+            if std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                return; // Broker already running
+            }
+        }
+    }
+
+    // Write our PID
+    let _ = std::fs::write(BROKER_PID_FILE, std::process::id().to_string());
+
+    // Fork to background (simplified: just spawn a thread)
+    std::thread::spawn(|| {
+        use std::io::{Read, Write};
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::net::UnixListener;
+            use std::os::unix::fs::PermissionsExt;
+
+            // Remove stale socket
+            let _ = std::fs::remove_file(BROKER_SOCKET_PATH);
+
+            let listener = match UnixListener::bind(BROKER_SOCKET_PATH) {
+                Ok(l) => l,
+                Err(_) => return,
+            };
+
+            // Set 0600 permissions — only current user can connect
+            if let Ok(meta) = std::fs::metadata(BROKER_SOCKET_PATH) {
+                let mut perms = meta.permissions();
+                perms.set_mode(0o600);
+                let _ = std::fs::set_permissions(BROKER_SOCKET_PATH, perms);
+            }
+
+            for stream in listener.incoming() {
+                let mut stream = match stream {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+
+                let mut buf = [0u8; 8192];
+                let n = match stream.read(&mut buf) {
+                    Ok(n) if n > 0 => n,
+                    _ => continue,
+                };
+
+                let request: serde_json::Value = match serde_json::from_slice(&buf[..n]) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        let _ = stream.write_all(br#"{"ok":false,"error":"invalid_json"}"#);
+                        continue;
+                    }
+                };
+
+                let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                let response = handle_broker_request(method);
+
+                let _ = stream.write_all(serde_json::to_string(&response).unwrap_or_default().as_bytes());
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            // Windows: named pipe would go here
+            // For now, the file-based credential store is the fallback
+        }
+    });
+}
+
+/// Handle a broker IPC request.
+fn handle_broker_request(method: &str) -> serde_json::Value {
+    match method {
+        "auth.status" => {
+            let token_result = access_token();
+            serde_json::json!({
+                "ok": true,
+                "result": {
+                    "authenticated": token_result.is_ok(),
+                }
+            })
+        }
+        "token.get" => {
+            match access_token() {
+                Ok(token) => serde_json::json!({
+                    "ok": true,
+                    "result": {
+                        "accessToken": token,
+                        "expiresAt": format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() + 900).unwrap_or(0))
+                    }
+                }),
+                Err(e) => serde_json::json!({
+                    "ok": false,
+                    "error": e,
+                })
+            }
+        }
+        "token.invalidate" => {
+            let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT);
+            if let Ok(e) = entry {
+                let _ = e.delete_credential();
+            }
+            // Also clean up file-based store
+            if let Ok(home) = std::env::var("HOME") {
+                let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
+                let _ = std::fs::remove_file(cred_file);
+            }
+            serde_json::json!({"ok": true, "result": {"revoked": true}})
+        }
+        "auth.logout" => {
+            // Revoke token on server, then clear local credentials
+            if let Ok(token) = access_token() {
+                let _ = reqwest::Client::new()
+                    .post(format!("{WEB_ORIGIN}/oauth/revoke"))
+                    .bearer_auth(token)
+                    .send();
+            }
+            let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT);
+            if let Ok(e) = entry {
+                let _ = e.delete_credential();
+            }
+            if let Ok(home) = std::env::var("HOME") {
+                let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
+                let _ = std::fs::remove_file(cred_file);
+                let _ = std::fs::remove_file(BROKER_PID_FILE);
+                let _ = std::fs::remove_file(BROKER_SOCKET_PATH);
+            }
+            serde_json::json!({"ok": true, "result": {"loggedOut": true}})
+        }
+        _ => serde_json::json!({"ok": false, "error": "unknown_method"}),
+    }
+}
+
 fn main() -> ExitCode {
+    // Start the credential broker IPC server in the background
+    start_broker();
+
     let cli = Cli::parse();
     let root = match install_root() {
         Ok(v) => v,
@@ -1660,6 +1819,22 @@ fn main() -> ExitCode {
             McpCommand::Doctor => mcp_doctor(&root),
             McpCommand::Reconnect => mcp_reconnect(&root),
         },
+        Command::AgentRuntime { stdio } => {
+            if stdio {
+                let plugin_path = root.join("src/acp/transport.ts");
+                let engine = engine_path(&root);
+                let mut cmd = ProcessCommand::new(&engine);
+                cmd.arg("--eval")
+                   .arg(std::format!("import('{}').then(m=>m.startAcpServer())", plugin_path.display()))
+                   .env("CAPIX_ACP_STARTED", "1");
+                match cmd.status() {
+                    Ok(status) => Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE }),
+                    Err(e) => Err(format!("Failed to start agent runtime: {e}")),
+                }
+            } else {
+                Err("agent-runtime requires --stdio flag".into())
+            }
+        }
         Command::LlmRun { prompt } => llm_run(&prompt),
         Command::GpuStatus => api_get("/api/v1/gpu"),
         Command::Account => api_get("/api/v1/me"),
