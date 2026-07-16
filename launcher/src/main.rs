@@ -416,7 +416,7 @@ fn runtime() -> Result<tokio::runtime::Runtime, String> {
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(120))
         .build()
         .map_err(|e| format!("cannot initialize secure HTTP client: {e}"))
 }

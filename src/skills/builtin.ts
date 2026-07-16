@@ -7,6 +7,7 @@
  */
 
 import type { LocalSkill } from './runtime.js';
+import { SITE_BUILDER_SKILL } from './site-builder.js';
 
 export const BUILTIN_SKILLS: Omit<LocalSkill, 'installedAt' | 'signature'>[] = [
   {
@@ -81,4 +82,5 @@ export const BUILTIN_SKILLS: Omit<LocalSkill, 'installedAt' | 'signature'>[] = [
     enabled: true,
     pinned: false,
   },
+  SITE_BUILDER_SKILL,
 ];
