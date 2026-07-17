@@ -395,6 +395,7 @@ export async function* stream(
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
         Authorization: `Bearer ${token}`,
+        'Idempotency-Key': requestId,
         ...metaHeaders(options.meta, requestId),
       },
       body: JSON.stringify(requestBody),
