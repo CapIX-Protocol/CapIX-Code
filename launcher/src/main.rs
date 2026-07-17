@@ -411,6 +411,8 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
     ]);
     let config_content = serde_json::to_string(&config)
         .map_err(|e| format!("cannot encode bundled Capix config: {e}"))?;
+    let config_file = root.join("config/runtime-config.json");
+    let _ = std::fs::write(&config_file, &config_content);
     let available = canonical
         .1
         .pointer("/balances/USDC/available")
@@ -428,12 +430,9 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
             "CAPIX_CODE_DEFAULT_CONFIG",
             root.join("config/defaults.json"),
         )
-        // Write config to a file so the engine can resolve plugin paths
-        // relative to the config file directory. OPENCODE_CONFIG_CONTENT
-        // (env string) doesn't provide a base path for plugin resolution.
-        let config_file = root.join("config/runtime-config.json");
-        let _ = std::fs::write(&config_file, &config_content);
-        .env("OPENCODE_CONFIG", &config_file)
+.env("CAPIX_CODE_CONFIG_CONTENT", config_content.clone())
+        .env("OPENCODE_CONFIG_CONTENT", config_content.clone())
+        .env("OPENCODE_CONFIG", config_file)
         .env("CAPIX_BASE_URL", "https://www.capix.network/api/v1")
         .env(
             "CAPIX_INFERENCE_BASE_URL",
