@@ -511,7 +511,7 @@ function toSdkModel(m: CapixCatalogModel, providerID: string): Model {
     providerID,
     api: {
       id: m.id,
-      url: buildUrl(inferenceBase(), '/inference'),
+      url: inferenceBase(),
       npm: '@capix/runtime-provider',
     },
     name: m.label ?? m.name ?? m.id,
@@ -562,7 +562,7 @@ function toSdkAutoModel(): Model {
     providerID: 'capix',
     api: {
       id: 'auto',
-      url: buildUrl(inferenceBase(), '/inference'),
+      url: inferenceBase(),
       npm: '@capix/runtime-provider',
     },
     name: 'Capix Auto (server-authoritative routing)',
