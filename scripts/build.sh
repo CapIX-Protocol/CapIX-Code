@@ -23,6 +23,7 @@ echo "▸ Building capix-code standalone binary…"
 # identifier. Stamp it with the immutable Capix Code package version so the TUI,
 # API metadata and diagnostics all report the customer release.
 CAPIX_RELEASE_VERSION="${CAPIX_CODE_VERSION:-$(node -p 'require(process.argv[1]).version' "$DIR/package.json")}"
+export CAPIX_CODE_VERSION="$CAPIX_RELEASE_VERSION"
 export OPENCODE_VERSION="$CAPIX_RELEASE_VERSION"
 
 # Write default config if the init script exists.
@@ -63,6 +64,16 @@ if [ -n "$OUTPUT" ]; then
   npm install capix-mcp@2.1.0 --prefix "$DIR/dist/mcp-tmp" 2>/dev/null
   cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/dist/"* "$ARTIFACT/mcp/" 2>/dev/null
   cp "$DIR/dist/mcp-tmp/node_modules/capix-mcp/package.json" "$ARTIFACT/mcp/" 2>/dev/null
+  # Copy capix-mcp's dependencies (SDK, zod, etc.)
+  mkdir -p "$ARTIFACT/mcp/node_modules"
+  if [ -d "$DIR/dist/mcp-tmp/node_modules/capix-mcp/node_modules" ]; then
+    cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/node_modules/"* "$ARTIFACT/mcp/node_modules/" 2>/dev/null
+  fi
+  for dep in @modelcontextprotocol zod; do
+    if [ -d "$DIR/dist/mcp-tmp/node_modules/$dep" ]; then
+      cp -R "$DIR/dist/mcp-tmp/node_modules/$dep" "$ARTIFACT/mcp/node_modules/" 2>/dev/null
+    fi
+  done
   # Create entry point wrapper that shares credentials with capix-code
   cat > "$ARTIFACT/mcp/capix-mcp.js" << 'MCPWRAPPER'
 #!/usr/bin/env node
