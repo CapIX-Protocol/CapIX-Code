@@ -60,10 +60,19 @@ if [ -n "$OUTPUT" ]; then
   cp "$DIR/config/capix-defaults.json" "$DIR/config/defaults.json" "$ARTIFACT/config/"
   cp -R "$DIR/commands" "$ARTIFACT/commands"
   # Build and bundle the MCP server from the capix-mcp npm package
-  mkdir -p "$ARTIFACT/mcp"
+  mkdir -p "$ARTIFACT/mcp" "$ARTIFACT/mcp/node_modules"
   npm install capix-mcp@2.1.0 --prefix "$DIR/dist/mcp-tmp" 2>/dev/null
   cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/dist/"* "$ARTIFACT/mcp/" 2>/dev/null
   cp "$DIR/dist/mcp-tmp/node_modules/capix-mcp/package.json" "$ARTIFACT/mcp/" 2>/dev/null
+  # Copy ALL dependencies needed by capix-mcp
+  for dep in @modelcontextprotocol zod; do
+    if [ -d "$DIR/dist/mcp-tmp/node_modules/$dep" ]; then
+      cp -R "$DIR/dist/mcp-tmp/node_modules/$dep" "$ARTIFACT/mcp/node_modules/" 2>/dev/null
+    fi
+  done
+  if [ -d "$DIR/dist/mcp-tmp/node_modules/capix-mcp/node_modules" ]; then
+    cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/node_modules/"* "$ARTIFACT/mcp/node_modules/" 2>/dev/null
+  fi
   # Copy capix-mcp's dependencies (SDK, zod, etc.)
   mkdir -p "$ARTIFACT/mcp/node_modules"
   if [ -d "$DIR/dist/mcp-tmp/node_modules/capix-mcp/node_modules" ]; then
