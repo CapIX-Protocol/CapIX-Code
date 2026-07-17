@@ -128,6 +128,22 @@ export class CredentialBroker {
       scopes?: string[];
     } = {}
   ): Promise<AccessToken> {
+    // If the launcher already set CAPIX_API_KEY, use it directly.
+    // The launcher refreshes the token before spawning the engine,
+    // so this avoids a redundant refresh that would consume the token.
+    const envKey = process.env.CAPIX_API_KEY?.trim();
+    if (envKey) {
+      if (!this.sessionAccess || this.sessionAccess.token !== envKey) {
+        this.sessionAccess = {
+          token: envKey,
+          expiresAt: new Date(Date.now() + 14 * 60 * 1000),
+        };
+      }
+      if (this.sessionAccess.expiresAt.getTime() > Date.now() + 60_000) {
+        return this.sessionAccess;
+      }
+    }
+
     if (this.sessionAccess && this.sessionAccess.expiresAt.getTime() > Date.now() + 60_000) {
       return this.sessionAccess;
     }
