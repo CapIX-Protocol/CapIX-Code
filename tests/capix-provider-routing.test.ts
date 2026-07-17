@@ -76,7 +76,7 @@ describe('canonical Capix routing', () => {
       chunks.push(chunk);
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      'https://www.capix.network/api/v1/inference/chat/completions'
+      'https://www.capix.network/api/v1/chat/completions'
     );
     expect(chunks).toContainEqual({ type: 'text', delta: 'hello' });
   });
