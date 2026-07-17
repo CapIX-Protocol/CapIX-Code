@@ -741,6 +741,15 @@ export const plugin: Plugin = async (
     // broker miss can never block config resolution.
     config: async (input) => {
       try {
+        // Inject CAPIX_API_KEY into the provider config so the V2 provider
+        // system passes it as apiKey to createCapix or the generic fallback.
+        const envKey = process.env.CAPIX_API_KEY?.trim();
+        if (envKey && input.provider?.capix) {
+          if (!input.provider.capix.options) input.provider.capix.options = {};
+          if (!input.provider.capix.options.apiKey) {
+            input.provider.capix.options.apiKey = envKey;
+          }
+        }
         if (!input.mcp) input.mcp = {};
         const servers = input.mcp as Record<string, unknown>;
         if (!servers.capix) {
