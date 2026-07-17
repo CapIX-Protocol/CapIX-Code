@@ -16,6 +16,7 @@ required=(
   runtime/node_modules/@capix/runtime-provider/package.json
   config/capix-defaults.json
   config/defaults.json
+  mcp/capix-mcp.js
 )
 for path in "${required[@]}"; do
   test -e "$ROOT/$path" || { echo "✗ artifact missing $path"; exit 1; }

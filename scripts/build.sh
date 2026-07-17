@@ -51,13 +51,20 @@ fi
 if [ -n "$OUTPUT" ]; then
   ARTIFACT="$DIR/dist/customer"
   rm -rf "$ARTIFACT"
-  mkdir -p "$ARTIFACT/bin" "$ARTIFACT/engine" "$ARTIFACT/runtime/packages" "$ARTIFACT/config"
+  mkdir -p "$ARTIFACT/bin" "$ARTIFACT/engine" "$ARTIFACT/runtime/packages" "$ARTIFACT/config" "$ARTIFACT/mcp"
   cp "$OUTPUT" "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   cp -R "$DIR/src" "$ARTIFACT/runtime/src"
   cp -R "$DIR/packages/runtime-provider" "$ARTIFACT/runtime/packages/runtime-provider"
   cp "$DIR/config/runtime-package.json" "$ARTIFACT/runtime/package.json"
   cp "$DIR/config/capix-defaults.json" "$DIR/config/defaults.json" "$ARTIFACT/config/"
   cp -R "$DIR/commands" "$ARTIFACT/commands"
+  # Build and bundle the MCP server from the capix-mcp package
+  mkdir -p "$ARTIFACT/mcp"
+  npm install capix-mcp@2.1.0 --prefix "$DIR/dist/mcp-tmp" 2>/dev/null
+  cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/dist/"* "$ARTIFACT/mcp/" 2>/dev/null
+  cp "$DIR/dist/mcp-tmp/node_modules/capix-mcp/package.json" "$ARTIFACT/mcp/" 2>/dev/null
+  cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/node_modules/" "$ARTIFACT/mcp/node_modules/" 2>/dev/null
+  rm -rf "$DIR/dist/mcp-tmp"
   chmod 0755 "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   # Install from the dedicated runtime manifest. The outer npm package has
   # platform selectors which do not belong inside the embedded runtime.
