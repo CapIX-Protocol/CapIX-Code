@@ -4,7 +4,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Skip in CI environments
 if (process.env.CI || process.env.GITHUB_ACTIONS) {
   console.log('Skipping binary download in CI environment.');
   process.exit(0);
@@ -38,38 +37,36 @@ try {
 
   const customerSrc = path.join(tmpDir, 'customer');
   if (fs.existsSync(customerSrc)) {
-    // Copy bin/ and engine/ and runtime/ to ~/.capix-code
-    for (const dir of ['bin', 'engine', 'runtime', 'config', 'mcp']) {
+    for (const dir of ['bin', 'engine', 'runtime', 'config']) {
       const src = path.join(customerSrc, dir);
       const dst = path.join(installDir, dir);
       if (fs.existsSync(src)) {
         execSync(`cp -a "${src}" "${dst}"`, { stdio: 'inherit' });
       }
     }
-    // Ensure bin is executable
     const binPath = path.join(installDir, 'bin', 'capix-code');
     if (fs.existsSync(binPath)) {
       fs.chmodSync(binPath, 0o755);
     }
   }
 
-  // Ensure MCP is available — download from npm if not in the tarball
+  // Install MCP server from npm
   const mcpDir = path.join(installDir, 'mcp');
   const mcpEntry = path.join(mcpDir, 'capix-mcp.js');
   if (!fs.existsSync(mcpEntry)) {
-    console.log('Installing capix-mcp server...');
-    try {
-      execSync(`npm install capix-mcp@2.1.0 --prefix "${mcpDir}" 2>&1`, { stdio: 'inherit' });
-      // Create a wrapper entry point
-      fs.writeFileSync(mcpEntry, `#!/usr/bin/env node\nimport('${path.join(mcpDir, 'node_modules', 'capix-mcp', 'dist', 'index.js')}');\n`);
-      fs.chmodSync(mcpEntry, 0o755);
-    } catch (e) {
-      console.warn('⚠ capix-mcp install failed. Install manually: npm install -g capix-mcp');
-    }
+    console.log('Installing capix-mcp server from npm...');
+    fs.mkdirSync(mcpDir, { recursive: true });
+    execSync(`npm install capix-mcp@2.1.0`, { cwd: mcpDir, stdio: 'inherit' });
+    // Create entry point wrapper
+    fs.writeFileSync(mcpEntry,
+      '#!/usr/bin/env node\n' +
+      `require('${path.join(mcpDir, 'node_modules', 'capix-mcp', 'dist', 'index.js')}');\n`
+    );
+    fs.chmodSync(mcpEntry, 0o755);
+    console.log('✓ capix-mcp installed');
   }
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
-
   console.log(`✓ Capix Code v${VERSION} installed to ${installDir}`);
   console.log('Run: capix-code --version');
 } catch (err) {
