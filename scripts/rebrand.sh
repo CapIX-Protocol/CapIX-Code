@@ -22,6 +22,42 @@ fi
 
 echo "▸ Rebranding in $CAPIX_CODE_DIR"
 
+# 0a. Patch the script package to use CAPIX_CODE_VERSION env var instead of OPENCODE_VERSION
+SCRIPT_SRC="$CAPIX_CODE_DIR/packages/script/src/index.ts"
+if [ -f "$SCRIPT_SRC" ]; then
+  sed -i.bak 's/env\.OPENCODE_VERSION/env.CAPIX_CODE_VERSION/g' "$SCRIPT_SRC"
+  sed -i.bak 's/env\.OPENCODE_BUMP/env.CAPIX_CODE_BUMP/g' "$SCRIPT_SRC"
+  sed -i.bak 's/env\.OPENCODE_RELEASE/env.CAPIX_CODE_RELEASE/g' "$SCRIPT_SRC"
+  rm -f "$SCRIPT_SRC.bak"
+  echo "  ✓ script package env vars rebranded"
+fi
+
+# 0b. Patch the build script to define CAPIX_CODE_VERSION instead of OPENCODE_VERSION
+BUILD_SCRIPT="$CAPIX_CODE_DIR/packages/capix-code/script/build.ts"
+if [ -f "$BUILD_SCRIPT" ]; then
+  sed -i.bak 's/OPENCODE_VERSION/CAPIX_CODE_VERSION/g' "$BUILD_SCRIPT"
+  sed -i.bak 's/OPENCODE_CHANNEL/CAPIX_CODE_CHANNEL/g' "$BUILD_SCRIPT"
+  rm -f "$BUILD_SCRIPT.bak"
+  echo "  ✓ build script defines rebranded"
+fi
+
+# 0c. Patch the version.ts to use CAPIX_CODE_VERSION global
+VERSION_SRC="$CAPIX_CODE_DIR/packages/core/src/installation/version.ts"
+if [ -f "$VERSION_SRC" ]; then
+  sed -i.bak 's/OPENCODE_VERSION/CAPIX_CODE_VERSION/g' "$VERSION_SRC"
+  sed -i.bak 's/OPENCODE_CHANNEL/CAPIX_CODE_CHANNEL/g' "$VERSION_SRC"
+  rm -f "$VERSION_SRC.bak"
+  echo "  ✓ version.ts globals rebranded"
+fi
+
+# 0d. Patch the installation index.ts user-agent string
+INSTALL_SRC="$CAPIX_CODE_DIR/packages/capix-code/src/installation/index.ts"
+if [ -f "$INSTALL_SRC" ]; then
+  sed -i.bak 's|opencode/|capix-code/|g' "$INSTALL_SRC"
+  rm -f "$INSTALL_SRC.bak"
+  echo "  ✓ installation user-agent rebranded"
+fi
+
 # 1. Binary name in packages/capix-code/package.json — ONLY the "bin" field.
 PKG="$CAPIX_CODE_DIR/packages/capix-code/package.json"
 if [ -f "$PKG" ]; then
@@ -93,6 +129,10 @@ rm -f "$TUI_PRESENTATION.bak"
 PRESENTATION_FILES=(
   packages/tui/src/app.tsx
   packages/tui/src/util/presentation.ts
+  packages/tui/src/feature-plugins/sidebar/footer.tsx
+  packages/tui/src/feature-plugins/home/footer.tsx
+  packages/tui/src/feature-plugins/home/tips-view.tsx
+  packages/tui/src/keymap.tsx
   packages/capix-code/src/cli/ui.ts
   packages/capix-code/src/index.ts
   packages/capix-code/src/cli/error.ts
@@ -100,6 +140,7 @@ PRESENTATION_FILES=(
   packages/capix-code/src/cli/cmd/run/splash.ts
   packages/capix-code/src/cli/cmd/run/footer.permission.tsx
   packages/capix-code/src/cli/cmd/run/footer.prompt.tsx
+  packages/capix-code/src/cli/cmd/run/footer.view.tsx
   packages/capix-code/src/cli/cmd/run/permission.shared.ts
   packages/capix-code/src/provider/error.ts
   packages/capix-code/src/cli/cmd/attach.ts
@@ -110,6 +151,13 @@ PRESENTATION_FILES=(
   packages/capix-code/src/cli/cmd/pr.ts
   packages/capix-code/src/cli/cmd/tui.ts
   packages/capix-code/src/cli/network.ts
+  packages/capix-code/src/plugin/xai.ts
+  packages/capix-code/src/config/tui-migrate.ts
+  packages/capix-code/src/config/tui.ts
+  packages/capix-code/src/config/config.ts
+  packages/capix-code/src/config/paths.ts
+  packages/capix-code/src/config/managed.ts
+  packages/capix-code/src/temporary.ts
 )
 for relative in "${PRESENTATION_FILES[@]}"; do
   file="$CAPIX_CODE_DIR/$relative"
@@ -138,6 +186,28 @@ for relative in "${PRESENTATION_FILES[@]}"; do
     s/OPENCODE_SERVER/CAPIX_CODE_SERVER/g;
     s/or '\''opencode'\''/or '\''capix'\''/g;
     s/opencode does not support/Capix Code does not support/g;
+    s/opencode includes free models/Capix Code includes free models/g;
+    s/public opencode\.ai link/public capix.network link/g;
+    s/opencode\.ai link/capix.network link/g;
+    s/opencode\.json/capix-code.json/g;
+    s/~\/\.config\/opencode/~\/.config\/capix-code/g;
+    s/\.opencode\//.capix-code\//g;
+    s/"opencode"/"capix-code"/g;
+    s/opencode run/capix-code run/g;
+    s/opencode serve/Capix Code serve/g;
+    s/opencode --continue/capix-code --continue/g;
+    s/prevent OpenCode from reading/prevent Capix Code from reading/g;
+    s/to OpenCode/to Capix Code/g;
+    s/opencode\//capix-code\//g;
+    s/ai\.opencode\.managed/ai.capix-code.managed/g;
+    s/Support\/opencode/Support\/capix-code/g;
+    s/sst-dev\.opencode/sst-dev.capix/g;
+    s/\.opencode-version/.capix-code-version/g;
+    s/opencode\.ai\/tui\.json/capix.network\/tui.json/g;
+    s/opencode\.ai\/config\.json/capix.network\/config.json/g;
+    s/opencode status/capix-code status/g;
+    s/opencode debug/capix-code debug/g;
+    s/opencode\.mode/capix-code.mode/g;
   ' "$file"
   rm -f "$file.bak"
 done
