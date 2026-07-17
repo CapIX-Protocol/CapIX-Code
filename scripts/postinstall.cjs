@@ -9,7 +9,7 @@ if (process.env.CI || process.env.GITHUB_ACTIONS) {
   process.exit(0);
 }
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const PLATFORM_MAP = { darwin: 'darwin', linux: 'linux', win32: 'win32' };
 const ARCH_MAP = { arm64: 'arm64', x64: 'x64' };
 const platform = PLATFORM_MAP[process.platform] || 'linux';
