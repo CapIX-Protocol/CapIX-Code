@@ -428,12 +428,12 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
             "CAPIX_CODE_DEFAULT_CONFIG",
             root.join("config/defaults.json"),
         )
-        // The rebranded engine reads CAPIX_CODE_CONFIG_CONTENT (not
-        // OPENCODE_CONFIG_CONTENT) at config.ts:468. This carries the
-        // opencode-schema config with the plugin path so the engine
-        // actually loads the Capix provider, auth and sandbox.
-        .env("CAPIX_CODE_CONFIG_CONTENT", config_content.clone())
-        .env("OPENCODE_CONFIG_CONTENT", config_content)
+        // Write config to a file so the engine can resolve plugin paths
+        // relative to the config file directory. OPENCODE_CONFIG_CONTENT
+        // (env string) doesn't provide a base path for plugin resolution.
+        let config_file = root.join("config/runtime-config.json");
+        let _ = std::fs::write(&config_file, &config_content);
+        .env("OPENCODE_CONFIG", &config_file)
         .env("CAPIX_BASE_URL", "https://www.capix.network/api/v1")
         .env(
             "CAPIX_INFERENCE_BASE_URL",

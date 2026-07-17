@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 /**
  * SubagentManager — spawns child agents in isolated Git worktrees.
  *

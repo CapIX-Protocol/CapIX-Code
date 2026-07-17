@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
+ 
 /**
  * Native bridge preload — runs before the Capix plugin and sets up the
  * globalThis bridges that CredentialBroker and the provider require.
