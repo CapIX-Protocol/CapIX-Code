@@ -746,7 +746,7 @@ export const plugin: Plugin = async (
         if (!servers.capix) {
           let apiKey = '';
           try {
-            apiKey = (await broker.getAccessToken()).token;
+            apiKey = process.env.CAPIX_API_KEY?.trim() || '';
           } catch {
             // Not logged in yet — env stays empty; the broker refreshes on
             // demand once auth completes.
