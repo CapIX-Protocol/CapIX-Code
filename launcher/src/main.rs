@@ -364,7 +364,11 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
         "auto".into(),
         serde_json::json!({
             "name": "Capix Auto · smart routed",
-            "limit": {"context": 128000, "output": 64000}
+            "limit": {"context": 128000, "output": 64000},
+            "api": {
+                "url": "https://www.capix.network/api/v1",
+                "npm": "@capix/runtime-provider"
+            }
         }),
     );
     if let Some(models) = canonical.0.get("models").and_then(|v| v.as_array()) {
@@ -389,7 +393,11 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
                 engine_id.to_string(),
                 serde_json::json!({
                     "name": format!("Capix · {label}"),
-                    "limit": {"context": context, "output": context.min(32768)}
+                    "limit": {"context": context, "output": context.min(32768)},
+                    "api": {
+                        "url": "https://www.capix.network/api/v1",
+                        "npm": "@capix/runtime-provider"
+                    }
                 }),
             );
         }
