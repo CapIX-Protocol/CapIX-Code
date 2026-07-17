@@ -24,6 +24,7 @@ echo "▸ Building capix-code standalone binary…"
 # API metadata and diagnostics all report the customer release.
 CAPIX_RELEASE_VERSION="${CAPIX_CODE_VERSION:-$(node -p 'require(process.argv[1]).version' "$DIR/package.json")}"
 export CAPIX_CODE_VERSION="$CAPIX_RELEASE_VERSION"
+export CAPIX_CODE_CHANNEL="latest"
 export OPENCODE_VERSION="$CAPIX_RELEASE_VERSION"
 
 # Write default config if the init script exists.
