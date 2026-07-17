@@ -61,7 +61,7 @@
   },
   "share": "manual",
   "autoupdate": false,
-  "plugin": ["./src/plugin.ts"],
+  "plugin": ["./src/native-bridge.ts", "./src/plugin.ts"],
   "command": {
     "plan": {
       "description": "Create a research-first implementation plan",
