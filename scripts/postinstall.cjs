@@ -39,7 +39,7 @@ try {
   const customerSrc = path.join(tmpDir, 'customer');
   if (fs.existsSync(customerSrc)) {
     // Copy bin/ and engine/ and runtime/ to ~/.capix-code
-    for (const dir of ['bin', 'engine', 'runtime']) {
+    for (const dir of ['bin', 'engine', 'runtime', 'config']) {
       const src = path.join(customerSrc, dir);
       const dst = path.join(installDir, dir);
       if (fs.existsSync(src)) {
