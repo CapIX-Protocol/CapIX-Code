@@ -118,37 +118,18 @@ MCPWRAPPER
   cp "$DIR/launcher/target/release/capix-code$EXE_SUFFIX" "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
   chmod 0755 "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
 
-  # ── Post-compile branding pass ─────────────────────────────────────────
-  # The upstream engine binary has "opencode"/"OpenCode" strings baked in.
-  # The rebrand.sh patches source before compilation, but some survive in
-  # minified Bun chunks. This pass replaces them in the compiled binary.
+  # ── Post-compile branding pass (same-byte-length only) ─────────────────
+  # Replace "opencode"/"OpenCode" in the compiled binary using EXACT same
+  # byte-length replacements to avoid corrupting Bun's length-dependent offsets.
   ENGINE_BIN="$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   if [ -f "$ENGINE_BIN" ]; then
     echo "▸ Applying branding pass to engine binary..."
-    # Use perl for binary-safe in-place replacement
+    # Same-length replacements only: "opencode"→"capixcod", "OpenCode"→"CapixCod"
     perl -pi -e '
-      s/\bOpenCode\b/Capix Code/g;
-      s/opencode\.ai\/auth/capix.network\/oauth\/authorize/g;
-      s/opencode\.ai\/docs/capix.network\/docs/g;
-      s/opencode\.ai/capix.network/g;
-      s/opencode mcp add/capix-code mcp add/g;
-      s/opencode serve/capix-code serve/g;
-      s/opencode run/capix-code run/g;
-      s/opencode --continue/capix-code --continue/g;
-      s/opencode --mini/capix-code --mini/g;
-      s/opencode version/capix-code version/g;
-      s/opencode models/capix-code models/g;
-      s/opencode status/capix-code status/g;
-      s/opencode debug/capix-code debug/g;
-      s/opencode auth login/capix-code login/g;
-      s/"opencode"/"capix-code"/g;
-      s/\.opencode\//.capix-code\//g;
-      s/user-agent=opencode\//user-agent=capix-code\//g;
-      s/ai\.opencode\.managed/ai.capix-code.managed/g;
-      s/opencode\.json/capix-code.json/g;
-      s/\bopencode\b/capix-code/g;
+      s/OpenCode/CapixCod/g;
+      s/opencode/capixcod/g;
     ' "$ENGINE_BIN"
-    echo "  ✓ branding pass applied to engine binary"
+    echo "  ✓ branding pass applied to engine binary (same-length only)"
   fi
   "$DIR/scripts/assert-artifact.sh" "$ARTIFACT"
   "$DIR/scripts/assert-customer-brand.sh" "$ARTIFACT"
