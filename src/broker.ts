@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Credential broker — the privileged local identity boundary.
  *
@@ -485,7 +486,7 @@ export class CredentialBroker {
   // Connects to the native launcher's Unix domain socket broker for
   // cross-process auth coordination.
 
-  private async brokerRequest(method: string, params?: unknown): Promise<any> {
+  private async brokerRequest(method: string, params?: unknown): Promise<unknown> {
     try {
       const { connect } = await import('node:net');
       const socketPath = '/tmp/capix-code-broker.sock';
@@ -499,7 +500,7 @@ export class CredentialBroker {
           try {
             const response = JSON.parse(data.toString());
             resolve(response);
-          } catch (e) {
+          } catch {
             reject(new Error('invalid_broker_response'));
           }
           socket.end();
@@ -512,14 +513,14 @@ export class CredentialBroker {
           reject(new Error('broker_timeout'));
         });
       });
-    } catch (err) {
+    } catch {
       return { ok: false, error: 'broker_unavailable' };
     }
   }
 
   /** Check if the IPC broker is running and what its auth status is. */
   async getAuthStatus(): Promise<{ authenticated: boolean }> {
-    const response = await this.brokerRequest('auth.status');
+    const response: any = await this.brokerRequest('auth.status');
     if (response.ok && response.result) {
       return { authenticated: response.result.authenticated === true };
     }
@@ -528,7 +529,7 @@ export class CredentialBroker {
 
   /** Get a token from the broker (single-flight, cross-process safe). */
   async getBrokerToken(): Promise<string | null> {
-    const response = await this.brokerRequest('token.get');
+    const response: any = await this.brokerRequest('token.get');
     if (response.ok && response.result?.accessToken) {
       return response.result.accessToken;
     }

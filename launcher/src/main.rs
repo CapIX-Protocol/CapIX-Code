@@ -432,7 +432,8 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
         // OPENCODE_CONFIG_CONTENT) at config.ts:468. This carries the
         // opencode-schema config with the plugin path so the engine
         // actually loads the Capix provider, auth and sandbox.
-        .env("CAPIX_CODE_CONFIG_CONTENT", config_content)
+        .env("CAPIX_CODE_CONFIG_CONTENT", config_content.clone())
+        .env("OPENCODE_CONFIG_CONTENT", config_content)
         .env("CAPIX_BASE_URL", "https://www.capix.network/api/v1")
         .env(
             "CAPIX_INFERENCE_BASE_URL",

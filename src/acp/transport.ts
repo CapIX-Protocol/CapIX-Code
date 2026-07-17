@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * ACP (Agent Communication Protocol) Transport
  * 
@@ -14,8 +15,7 @@
  */
 
 import { CapixAgentRuntime } from '../../packages/agent-runtime/src/runtime.js';
-import type { AgentEvent } from '../../packages/agent-runtime/src/events.js';
-import { randomUUID } from 'node:crypto';
+
 import { createInterface } from 'node:readline';
 
 const ACP_VERSION = 1;

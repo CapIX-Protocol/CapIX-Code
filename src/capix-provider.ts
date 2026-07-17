@@ -38,7 +38,7 @@ import type {
 
 import { CredentialBroker } from './broker.js';
 import { logger } from './logger.js';
-import { buildInferenceUrl, buildModelsUrl, buildUrl, validateBaseUrl } from './url-builder.js';
+import { buildInferenceUrl, buildModelsUrl, validateBaseUrl } from './url-builder.js';
 
 /** Default production origins. Overridable by config; never by env secret. */
 export const CAPIX_API_BASE = 'https://www.capix.network/api/v1';

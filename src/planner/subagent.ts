@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * SubagentManager — spawns child agents in isolated Git worktrees.
  *
@@ -126,7 +127,7 @@ export class SubagentManager {
         parentAgentId: config.parentSessionId,
         source: 'capix-code:subagent',
       }).catch(() => {}); // Non-blocking: intelligence may not be configured
-    } catch {}
+    } catch { /* ignore */ }
     const objective = config.planStep.description;
     const engineCmd = this.engineCommand?.(config) ?? null;
 
@@ -217,11 +218,11 @@ export class SubagentManager {
   // The engine emits lines like "receipt: r_abc123" and "usage: 30 input, 10 output tokens"
   // The actual cost is tracked via the intelligence API's route receipt
   let costMinor = 0n;
-  let receiptId: string | undefined;
+  
   const receiptMatch = stdout.match(/receipt:\s*(\S+)/);
   const usageMatch = stdout.match(/usage:\s+(\d+)\s+input,\s+(\d+)\s+output/);
   if (receiptMatch) {
-    receiptId = receiptMatch[1];
+    void receiptMatch;
     // In production, query the receipt from the intelligence API to get the real cost
     // For now, estimate from token count (rough: $0.001 per 1K tokens)
     const inputTokens = usageMatch ? parseInt(usageMatch[1]) : 0;

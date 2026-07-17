@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * Native bridge preload — runs before the Capix plugin and sets up the
  * globalThis bridges that CredentialBroker and the provider require.
@@ -21,7 +22,7 @@
  * - No credentials are logged.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createServer, type Server } from 'node:http';
@@ -56,7 +57,7 @@ function readCredentialsFile(): CredentialEntry {
   }
 }
 
-function writeCredentialsFile(data: CredentialEntry): void {
+function writeCredentialsFile(_data: CredentialEntry): void {
   // DEPRECATED: Refresh tokens must only be stored in the OS keychain.
   // This file is read for legacy migration only. New writes are refused.
   // The broker.ts migrateLegacyCredentials() will read and then delete this file.
@@ -93,8 +94,8 @@ if (!(globalThis as Record<string, unknown>).capixSecureStore) {
         data[fileKey] = value;
         if (!existsSync(CREDENTIALS_DIR)) mkdirSync(CREDENTIALS_DIR, { recursive: true, mode: 0o700 });
         writeFileSync(CREDENTIALS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
-        try { chmodSync(CREDENTIALS_FILE, 0o600); } catch {}
-      } catch (err) {
+        try { chmodSync(CREDENTIALS_FILE, 0o600); } catch { /* ignore */ }
+      } catch {
         // Non-fatal — session-only fallback
       }
     },
@@ -106,7 +107,7 @@ if (!(globalThis as Record<string, unknown>).capixSecureStore) {
         if (Object.keys(data).length > 0) {
           writeCredentialsFile(data);
         } else {
-          try { require('fs').unlinkSync(CREDENTIALS_FILE); } catch {}
+          try { unlinkSync(CREDENTIALS_FILE); } catch { /* ignore */ }
         }
       } catch {
         // Non-fatal

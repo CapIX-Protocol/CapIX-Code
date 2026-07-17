@@ -6,8 +6,6 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
 
 export type McpHealthState = 'starting' | 'authenticating' | 'connected' | 'reauthenticating' | 'degraded' | 'disconnected';
 
@@ -97,7 +95,7 @@ export class McpSupervisor {
           // Send tools/list
           this.sendToolsList();
         }
-      } catch {}
+      } catch { /* ignore */ }
     });
   }
 
@@ -120,7 +118,7 @@ export class McpSupervisor {
           this.health.lastCheckedAt = new Date().toISOString();
           this.notify();
         }
-      } catch {}
+      } catch { /* ignore */ }
     });
   }
 
@@ -142,7 +140,7 @@ export class McpSupervisor {
 
   reconnect(mcpPath: string, env: Record<string, string>): void {
     if (this.process) {
-      try { this.process.kill('SIGTERM'); } catch {}
+      try { this.process.kill('SIGTERM'); } catch { /* ignore */ }
     }
     this.health.restartCount = 0;
     this.spawnProcess(mcpPath, env);
@@ -166,7 +164,7 @@ export class McpSupervisor {
   stop(): void {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     if (this.process) {
-      try { this.process.kill('SIGTERM'); } catch {}
+      try { this.process.kill('SIGTERM'); } catch { /* ignore */ }
       this.process = null;
     }
     this.health.state = 'disconnected';

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * Capix Code plugin — real entry point.
  *
@@ -52,7 +53,6 @@ import {
   type Plan,
 } from './planner/index.js';
 import { SPECIALIST_AGENTS, getSpecialist } from './planner/specialists.js';
-import { McpSupervisor, type McpHealth } from './mcp-supervisor.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 
 export const CAPIX_PLUGIN_VERSION = '1.4.0';
@@ -545,7 +545,7 @@ export const plugin: Plugin = async (
         permissions: s.permissions,
         trustFloor: "untrusted",
       }).catch(() => {}); // Non-blocking
-    } catch {}
+    } catch { /* ignore */ }
   }
 
   // Rolling transcript for loss-aware compaction + latest task for skill
@@ -686,7 +686,7 @@ export const plugin: Plugin = async (
         status: 'in-progress',
       };
       // Use specialist agent if specified, otherwise default to implement
-      const specialistRole = (args as any).specialist || 'implement';
+      const specialistRole = (args as Record<string, unknown>).specialist as string || "implement";
       const specialist = getSpecialist(specialistRole) ?? SPECIALIST_AGENTS.implement;
 
       const config: SubagentConfig = {
@@ -718,7 +718,7 @@ export const plugin: Plugin = async (
   });
 
   // ── MCP Supervisor ─────────────────────────────────────────────────────
-  const mcpSupervisor = new McpSupervisor();
+  
   
   const capixHook = createCapixProviderHook();
 
@@ -762,7 +762,7 @@ export const plugin: Plugin = async (
           }
           servers.capix = {
             type: 'local',
-            command: [process.env.CAPIX_MCP_PATH || require('path').join(process.env.HOME || '/home/user', '.capix-code', 'mcp', 'capix-mcp.js'), 'server', '--stdio'],
+            command: [process.env.CAPIX_MCP_PATH || /* eslint-disable @typescript-eslint/no-require-imports */ require('node:path').join(process.env.HOME || '/home/user', '.capix-code', 'mcp', 'capix-mcp.js'), 'server', '--stdio'],
             enabled: true,
             ...(apiKey ? { environment: { CAPIX_API_KEY: apiKey } } : {}),
           };
