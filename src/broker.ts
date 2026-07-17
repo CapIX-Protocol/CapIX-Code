@@ -569,6 +569,16 @@ export class CredentialBroker {
     return this.base64Url(new Uint8Array(digest));
   }
 
+  private async openBrowser(url: string): Promise<void> {
+    const native = (globalThis as { capixOAuth?: { awaitCallback: (url: string, state: string) => Promise<{ code: string; state: string }> } }).capixOAuth;
+    if (native?.awaitCallback) {
+      const callback = await native.awaitCallback(url, this.authState ?? '');
+      this.submitAuthorizationCallback(callback);
+    } else {
+      logger.info('capix-broker: open browser', { url });
+    }
+  }
+
   private async awaitCode(): Promise<string> {
     // If openBrowser already captured the code via native bridge, use it
     if (this.authorizationCode) return this.authorizationCode;
