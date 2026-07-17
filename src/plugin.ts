@@ -780,6 +780,25 @@ export const plugin: Plugin = async (
           type: 'oauth',
           label: 'Sign in with Capix',
           async authorize() {
+            // Check if already authenticated via CAPIX_API_KEY (set by launcher)
+            // or if the broker has a valid refresh token
+            const existingKey = process.env.CAPIX_API_KEY?.trim();
+            if (existingKey) {
+              try {
+                const access = await broker.getAccessToken();
+                if (access?.token) {
+                  return {
+                    type: 'success' as const,
+                    provider: 'capix',
+                    refresh: '',
+                    access: access.token,
+                    expires: access.expiresAt.getTime(),
+                  };
+                }
+              } catch {
+                // Token might be expired, fall through to login
+              }
+            }
             await broker.login();
             const url = await broker.authorizationUrl();
             return {
