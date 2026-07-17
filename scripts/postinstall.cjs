@@ -57,13 +57,51 @@ try {
     console.log('Installing capix-mcp server from npm...');
     fs.mkdirSync(mcpDir, { recursive: true });
     execSync(`npm install capix-mcp@2.1.0`, { cwd: mcpDir, stdio: 'inherit' });
-    // Create entry point wrapper
+    // Create entry point wrapper that shares credentials with capix-code
+    const mcpPkgPath = path.join(mcpDir, 'node_modules', 'capix-mcp', 'dist', 'index.js');
     fs.writeFileSync(mcpEntry,
       '#!/usr/bin/env node\n' +
-      `require('${path.join(mcpDir, 'node_modules', 'capix-mcp', 'dist', 'index.js')}');\n`
+      'const { readFileSync, writeFileSync, chmodSync, existsSync } = require("node:fs");\n' +
+      'const { join } = require("node:path");\n' +
+      'const { homedir } = require("node:os");\n' +
+      'const credPath = join(homedir(), ".capix-code", "credentials.json");\n' +
+      'async function loadMcp() {\n' +
+      '  const mcpPath = join(homedir(), ".capix-code", "mcp", "node_modules", "capix-mcp", "dist", "index.js");\n' +
+      `  require('${mcpPkgPath}');\n` +
+      '}\n' +
+      '(async () => {\n' +
+      '  try {\n' +
+      '    if (existsSync(credPath)) {\n' +
+      '      const creds = JSON.parse(readFileSync(credPath, "utf8"));\n' +
+      '      const rt = creds["capix-code:oauth-refresh-token"];\n' +
+      '      if (rt) {\n' +
+      '        const res = await fetch("https://www.capix.network/oauth/token", {\n' +
+      '          method: "POST",\n' +
+      '          headers: { "Content-Type": "application/x-www-form-urlencoded" },\n' +
+      '          body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: rt, client_id: "capix-code" }).toString(),\n' +
+      '        });\n' +
+      '        const body = await res.json();\n' +
+      '        if (body.access_token) {\n' +
+      '          process.env.CAPIX_API_KEY = body.access_token;\n' +
+      '          creds["capix-code:oauth-refresh-token"] = body.refresh_token;\n' +
+      '          writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });\n' +
+      '          chmodSync(credPath, 0o600);\n' +
+      '        }\n' +
+      '      }\n' +
+      '    }\n' +
+      '  } catch {}\n' +
+      '  loadMcp();\n' +
+      '})();\n'
     );
     fs.chmodSync(mcpEntry, 0o755);
-    console.log('✓ capix-mcp installed');
+    console.log('✓ capix-mcp installed with shared credentials');
+  }
+
+  // Always update the MCP wrapper (in case credentials path changed)
+  const existingMcp = path.join(mcpDir, 'capix-mcp.js');
+  if (fs.existsSync(existingMcp) && !fs.existsSync(path.join(mcpDir, 'node_modules', 'capix-mcp'))) {
+    // Reinstall if node_modules is missing
+    execSync(`npm install capix-mcp@2.1.0`, { cwd: mcpDir, stdio: 'inherit' });
   }
 
   fs.rmSync(tmpDir, { recursive: true, force: true });

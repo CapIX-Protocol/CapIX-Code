@@ -271,14 +271,14 @@ export class CredentialBroker {
     if (!redirectUri) throw new Error('capix-broker: no redirect URI — call login() first');
     const res = await fetch('https://www.capix.network/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
         code_verifier: verifier,
         client_id: 'capix-code',
         redirect_uri: redirectUri,
-      }),
+      }).toString(),
     });
     if (!res.ok) {
       this.redirectUri = null;
@@ -569,13 +569,8 @@ export class CredentialBroker {
     return this.base64Url(new Uint8Array(digest));
   }
 
-  private async openBrowser(url: string): Promise<void> {
-    // The native launcher owns the browser open. In-process we no-op; the
-    // TUI surfaces the URL for the user.
-    logger.info('capix-broker: open browser', { url });
-  }
-
   private async awaitCode(): Promise<string> {
+    // If openBrowser already captured the code via native bridge, use it
     if (this.authorizationCode) return this.authorizationCode;
     const native = (
       globalThis as {

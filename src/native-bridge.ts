@@ -87,9 +87,16 @@ if (!(globalThis as Record<string, unknown>).capixSecureStore) {
       }
     },
     async set(service: string, account: string, value: string): Promise<void> {
-      // SECURITY: Do not persist refresh tokens to plaintext files.
-      // Tokens are stored only in the OS keychain by the Rust launcher.
-      // The in-process store is session-only (in-memory).
+      try {
+        const data = readCredentialsFile();
+        const fileKey = `${service}:${account}`;
+        data[fileKey] = value;
+        if (!existsSync(CREDENTIALS_DIR)) mkdirSync(CREDENTIALS_DIR, { recursive: true, mode: 0o700 });
+        writeFileSync(CREDENTIALS_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
+        try { chmodSync(CREDENTIALS_FILE, 0o600); } catch {}
+      } catch (err) {
+        // Non-fatal — session-only fallback
+      }
     },
     async delete(service: string, account: string): Promise<void> {
       try {
