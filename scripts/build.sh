@@ -56,6 +56,23 @@ if [ -n "$OUTPUT" ]; then
   mkdir -p "$ARTIFACT/bin" "$ARTIFACT/engine" "$ARTIFACT/runtime/packages" "$ARTIFACT/config" "$ARTIFACT/mcp"
   cp "$OUTPUT" "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   cp -R "$DIR/src" "$ARTIFACT/runtime/src"
+  # Create tsconfig.json so path aliases (@/*) resolve when the engine imports providers
+  cat > "$ARTIFACT/runtime/tsconfig.json" << 'TCSONFIG'
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
+TCSONFIG
   cp -R "$DIR/packages/runtime-provider" "$ARTIFACT/runtime/packages/runtime-provider"
   cp "$DIR/config/runtime-package.json" "$ARTIFACT/runtime/package.json"
   cp "$DIR/config/capix-defaults.json" "$DIR/config/defaults.json" "$ARTIFACT/config/"
