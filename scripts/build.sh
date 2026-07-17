@@ -58,12 +58,46 @@ if [ -n "$OUTPUT" ]; then
   cp "$DIR/config/runtime-package.json" "$ARTIFACT/runtime/package.json"
   cp "$DIR/config/capix-defaults.json" "$DIR/config/defaults.json" "$ARTIFACT/config/"
   cp -R "$DIR/commands" "$ARTIFACT/commands"
-  # Build and bundle the MCP server from the capix-mcp package
+  # Build and bundle the MCP server from the capix-mcp npm package
   mkdir -p "$ARTIFACT/mcp"
   npm install capix-mcp@2.1.0 --prefix "$DIR/dist/mcp-tmp" 2>/dev/null
   cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/dist/"* "$ARTIFACT/mcp/" 2>/dev/null
   cp "$DIR/dist/mcp-tmp/node_modules/capix-mcp/package.json" "$ARTIFACT/mcp/" 2>/dev/null
-  cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/node_modules/" "$ARTIFACT/mcp/node_modules/" 2>/dev/null
+  # Create entry point wrapper that shares credentials with capix-code
+  cat > "$ARTIFACT/mcp/capix-mcp.js" << 'MCPWRAPPER'
+#!/usr/bin/env node
+const { readFileSync, writeFileSync, chmodSync, existsSync } = require("node:fs");
+const { join } = require("node:path");
+const { homedir } = require("node:os");
+const credPath = join(homedir(), ".capix-code", "credentials.json");
+async function loadMcp() {
+  require(join(__dirname, "index.js"));
+}
+(async () => {
+  try {
+    if (existsSync(credPath)) {
+      const creds = JSON.parse(readFileSync(credPath, "utf8"));
+      const rt = creds["capix-code:oauth-refresh-token"];
+      if (rt) {
+        const res = await fetch("https://www.capix.network/oauth/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: rt, client_id: "capix-code" }).toString(),
+        });
+        const body = await res.json();
+        if (body.access_token) {
+          process.env.CAPIX_API_KEY = body.access_token;
+          creds["capix-code:oauth-refresh-token"] = body.refresh_token;
+          writeFileSync(credPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+          chmodSync(credPath, 0o600);
+        }
+      }
+    }
+  } catch {}
+  loadMcp();
+})();
+MCPWRAPPER
+  chmod 0755 "$ARTIFACT/mcp/capix-mcp.js"
   rm -rf "$DIR/dist/mcp-tmp"
   chmod 0755 "$ARTIFACT/engine/capix-engine$EXE_SUFFIX"
   # Install from the dedicated runtime manifest. The outer npm package has
