@@ -39,7 +39,7 @@ export function buildUrl(base: string, path: string): string {
  * Never produces a relative "/chat/completions" URL.
  */
 export function buildInferenceUrl(base: string): string {
-  return buildUrl(base, '/inference/chat/completions');
+  return buildUrl(base, '/chat/completions');
 }
 
 /**
