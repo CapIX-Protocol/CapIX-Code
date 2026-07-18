@@ -243,4 +243,72 @@ fi
 
 echo "✓ Rebrand complete. Only the binary name, config dirs, and env vars are rebranded."
 echo "  Runtime plugin/provider are staged by scripts/build.sh and verified fail-closed."
+# ── Standalone binary integration ──────────────────────────────────────
+# Copy our source files into the upstream's capix-code package so they
+# are compiled INTO the binary by Bun. This makes the binary truly
+# standalone — no external .ts files, tsconfig, or typescript needed
+# for the core provider.
+
+echo "▸ Integrating Capix provider into upstream source tree…"
+
+# Copy our src/*.ts files into the upstream's capix-code/src/
+for file in \
+  ai-sdk-provider.ts broker.ts capix-provider.ts credential-constants.ts \
+  intelligence-client.ts logger.ts mcp-supervisor.ts native-bridge.ts \
+  plugin.ts sandbox.ts url-builder.ts; do
+  if [ -f "$DIR/src/$file" ]; then
+    cp "$DIR/src/$file" "$CAPIX_CODE_DIR/packages/capix-code/src/$file"
+  fi
+done
+
+# Copy planner subdir
+if [ -d "$DIR/src/planner" ]; then
+  mkdir -p "$CAPIX_CODE_DIR/packages/capix-code/src/planner"
+  cp -R "$DIR/src/planner/"* "$CAPIX_CODE_DIR/packages/capix-code/src/planner/"
+fi
+
+# Copy our runtime-provider package
+mkdir -p "$CAPIX_CODE_DIR/packages/runtime-provider/src"
+cp "$DIR/packages/runtime-provider/package.json" "$CAPIX_CODE_DIR/packages/runtime-provider/package.json"
+cp "$DIR/packages/runtime-provider/src/index.ts" "$CAPIX_CODE_DIR/packages/runtime-provider/src/index.ts"
+
+# Add @capix/runtime-provider to the upstream's workspace
+UPSTREAM_PKG="$CAPIX_CODE_DIR/package.json"
+if [ -f "$UPSTREAM_PKG" ]; then
+  if ! grep -q "runtime-provider" "$UPSTREAM_PKG"; then
+    sed -i.bak 's|"packages/capix-code"|"packages/capix-code",\n    "packages/runtime-provider"|' "$UPSTREAM_PKG"
+    rm -f "$UPSTREAM_PKG.bak"
+  fi
+fi
+
+# Add @capix/runtime-provider to BUNDLED_PROVIDERS in provider.ts
+PROVIDER_TS="$CAPIX_CODE_DIR/packages/capix-code/src/provider/provider.ts"
+if [ -f "$PROVIDER_TS" ] && ! grep -q "capix/runtime-provider" "$PROVIDER_TS"; then
+  sed -i.bak 's|const BUNDLED_PROVIDERS: Record<string, () => Promise<(opts: any) => BundledSDK>> = {|const BUNDLED_PROVIDERS: Record<string, () => Promise<(opts: any) => BundledSDK>> = {\n  "@capix/runtime-provider": () => import("@capix/runtime-provider").then((m) => m.createCapix),|' "$PROVIDER_TS"
+  rm -f "$PROVIDER_TS.bak"
+fi
+
+# The @ai-sdk/provider import in runtime-provider needs to resolve
+# from the upstream's node_modules. Add it to the workspace deps.
+RT_PKG="$CAPIX_CODE_DIR/packages/runtime-provider/package.json"
+if [ -f "$RT_PKG" ]; then
+  # Change export path to work from upstream context
+  cat > "$RT_PKG" << 'RTPKG'
+{
+  "name": "@capix/runtime-provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@ai-sdk/provider": "3.0.8"
+  }
+}
+RTPKG
+fi
+
+echo "  ✓ Capix provider integrated into source tree"
+
+# ── End standalone integration ────────────────────────────────────────
+
 "$DIR/scripts/assert-upstream-brand.sh" "$CAPIX_CODE_DIR"

@@ -1,1 +1,5 @@
-{ "product": "Capix Code", "version": "2.0.1", "channel": "stable" }
+{
+  "product": "Capix Code",
+  "version": "2.1.0",
+  "channel": "stable"
+}
