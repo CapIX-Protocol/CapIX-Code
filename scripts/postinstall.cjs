@@ -39,13 +39,21 @@ if (!fs.existsSync(src)) {
   console.error('Missing customer/');
   process.exit(1);
 }
+// Remove the runtime-provider symlink before copying to avoid EISDIR conflicts.
+// The tarball contains a symlink at runtime/node_modules/@capix/runtime-provider
+// pointing to runtime/packages/runtime-provider; cpSync copies the symlink first,
+// then the directory copy conflicts.
+const badLink = path.join(src, 'runtime', 'node_modules', '@capix', 'runtime-provider');
+if (fs.existsSync(badLink) && fs.lstatSync(badLink).isSymbolicLink()) {
+  fs.rmSync(badLink, { force: true });
+}
 const backup = ROOT + '.bak';
 const next = `${ROOT}.next-${process.pid}`;
 fs.rmSync(next, { recursive: true, force: true });
 fs.mkdirSync(next, { recursive: true });
 for (const dir of ['bin', 'engine', 'runtime', 'config', 'mcp', 'commands']) {
   const s = path.join(src, dir);
-  if (fs.existsSync(s)) fs.cpSync(s, path.join(next, dir), { recursive: true });
+  if (fs.existsSync(s)) fs.cpSync(s, path.join(next, dir), { recursive: true, dereference: true });
 }
 const executableSuffix = process.platform === 'win32' ? '.exe' : '';
 const nextLauncher = path.join(next, 'bin', `capix-code${executableSuffix}`);
