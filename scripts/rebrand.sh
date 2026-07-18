@@ -165,6 +165,16 @@ PRESENTATION_FILES=(
   packages/capix-code/src/config/paths.ts
   packages/capix-code/src/config/managed.ts
   packages/capix-code/src/temporary.ts
+  packages/capix-code/src/session/prompt/anthropic.txt
+  packages/capix-code/src/session/prompt/beast.txt
+  packages/capix-code/src/session/prompt/codex.txt
+  packages/capix-code/src/session/prompt/copilot-gpt-5.txt
+  packages/capix-code/src/session/prompt/default.txt
+  packages/capix-code/src/session/prompt/gemini.txt
+  packages/capix-code/src/session/prompt/gpt.txt
+  packages/capix-code/src/session/prompt/kimi.txt
+  packages/capix-code/src/session/prompt/meta.txt
+  packages/capix-code/src/session/prompt/trinity.txt
 )
 for relative in "${PRESENTATION_FILES[@]}"; do
   file="$CAPIX_CODE_DIR/$relative"
@@ -215,6 +225,21 @@ for relative in "${PRESENTATION_FILES[@]}"; do
     s/opencode status/capix-code status/g;
     s/opencode debug/capix-code debug/g;
     s/opencode\.mode/capix-code.mode/g;
+    s/You are opencode/You are Capix Code/g;
+    s/You are OpenCode/You are Capix Code/g;
+    s/Your name is opencode/Your name is Capix Code/g;
+    s/opencode honestly applies/Capix Code honestly applies/g;
+    s/OpenCode honestly applies/Capix Code honestly applies/g;
+    s/from opencode docs/from Capix docs/g;
+    s/from OpenCode docs/from Capix docs/g;
+    s/about opencode/about Capix Code/g;
+    s/about OpenCode/about Capix Code/g;
+    s/using opencode/using Capix Code/g;
+    s/using OpenCode/using Capix Code/g;
+    s/opencode feature/Capix Code feature/g;
+    s/OpenCode feature/Capix Code feature/g;
+    s/opncd\.ai/capix.network/g;
+    s|github.com/anomalyco/opencode|capix.network|g;
   ' "$file"
   rm -f "$file.bak"
 done
