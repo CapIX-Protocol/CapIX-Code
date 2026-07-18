@@ -122,6 +122,10 @@ jobs:
         working-directory: launcher
         run: cargo build --locked --release
 
+      - name: Verify Windows named-pipe broker compiles with locked dependencies
+        working-directory: launcher
+        run: cargo test --locked --release --no-run
+
       - name: Stage runtime files for doctor
         shell: bash
         run: |
@@ -130,7 +134,7 @@ jobs:
           mkdir -p "$root/runtime/src" "$root/config" "$root/engine"
           mkdir -p "$root/runtime/node_modules/@capix/runtime-provider"
           cp src/plugin.ts src/native-bridge.ts src/capix-provider.ts \
-             src/broker.ts src/sandbox.ts src/ai-sdk-provider.ts \
+             src/broker.ts src/credential-constants.ts src/sandbox.ts src/ai-sdk-provider.ts \
              "$root/runtime/src/"
           cp config/capix-defaults.json "$root/config/"
           cp packages/runtime-provider/package.json \

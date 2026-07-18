@@ -27,6 +27,7 @@
 
 import { createServer, type Server } from 'node:net';
 import { logger } from './logger.js';
+import { brokerEndpoint } from './credential-constants.js';
 
 export interface AccessToken {
   token: string;
@@ -167,7 +168,11 @@ export class CredentialBroker {
     // Single-flight: if a refresh is already in progress, wait for it.
     if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = this._doRefresh();
-    try { await this.refreshPromise; } finally { this.refreshPromise = null; }
+    try {
+      await this.refreshPromise;
+    } finally {
+      this.refreshPromise = null;
+    }
   }
 
   private async _doRefresh(): Promise<void> {
@@ -184,7 +189,10 @@ export class CredentialBroker {
     }
 
     // Migrate legacy credentials on first use
-    if (!this.migrated) { this.migrated = true; await this.migrateLegacyCredentials(); }
+    if (!this.migrated) {
+      this.migrated = true;
+      await this.migrateLegacyCredentials();
+    }
     const refresh = await this.loadRefreshToken();
     if (!refresh) {
       throw new Error('capix-broker: not logged in');
@@ -474,7 +482,13 @@ export class CredentialBroker {
   private async migrateLegacyCredentials(): Promise<void> {
     if (this.sessionOnly) return;
     const store = (
-      globalThis as { capixSecureStore?: { get: (s: string, a: string) => Promise<string | null>; delete: (s: string, a: string) => Promise<void>; set: (s: string, a: string, v: string) => Promise<void> } }
+      globalThis as {
+        capixSecureStore?: {
+          get: (s: string, a: string) => Promise<string | null>;
+          delete: (s: string, a: string) => Promise<void>;
+          set: (s: string, a: string, v: string) => Promise<void>;
+        };
+      }
     ).capixSecureStore;
     if (!store) return;
     try {
@@ -495,21 +509,23 @@ export class CredentialBroker {
         logger.info('capix-broker: migrated file-based legacy credential', {});
       }
     } catch (err) {
-      logger.warn('capix-broker: credential migration failed (non-fatal)', { error: (err as Error).message });
+      logger.warn('capix-broker: credential migration failed (non-fatal)', {
+        error: (err as Error).message,
+      });
     }
   }
 
-
   // ── IPC broker client ───────────────────────────────────────────────────
-  // Connects to the native launcher's Unix domain socket broker for
-  // cross-process auth coordination.
+  // Connects to the native launcher's Unix domain socket (macOS/Linux) or
+  // current-user-restricted named pipe (Windows) for cross-process auth
+  // coordination.
 
   private async brokerRequest(method: string, params?: unknown): Promise<unknown> {
     try {
       const { connect } = await import('node:net');
-      const socketPath = '/tmp/capix-code-broker.sock';
+      const socketPath = brokerEndpoint();
       const request = JSON.stringify({ method, params });
-      
+
       return new Promise((resolve, reject) => {
         const socket = connect(socketPath, () => {
           socket.write(request);
@@ -605,7 +621,13 @@ export class CredentialBroker {
   }
 
   private async openBrowser(url: string): Promise<void> {
-    const native = (globalThis as { capixOAuth?: { awaitCallback: (url: string, state: string) => Promise<{ code: string; state: string }> } }).capixOAuth;
+    const native = (
+      globalThis as {
+        capixOAuth?: {
+          awaitCallback: (url: string, state: string) => Promise<{ code: string; state: string }>;
+        };
+      }
+    ).capixOAuth;
     if (native?.awaitCallback) {
       const callback = await native.awaitCallback(url, this.authState ?? '');
       this.submitAuthorizationCallback(callback);

@@ -5,6 +5,23 @@ vi.mock('../src/logger', () => ({
 }));
 
 import { CredentialBroker } from '../src/broker';
+import {
+  brokerEndpoint,
+  UNIX_BROKER_SOCKET_PATH,
+  WINDOWS_BROKER_PIPE_PATH,
+} from '../src/credential-constants';
+
+describe('native broker endpoint', () => {
+  it('uses a local named pipe on Windows', () => {
+    expect(brokerEndpoint('win32')).toBe('\\\\.\\pipe\\capix-code-broker');
+    expect(brokerEndpoint('win32')).toBe(WINDOWS_BROKER_PIPE_PATH);
+  });
+
+  it('uses the locked Unix socket on POSIX platforms', () => {
+    expect(brokerEndpoint('darwin')).toBe(UNIX_BROKER_SOCKET_PATH);
+    expect(brokerEndpoint('linux')).toBe(UNIX_BROKER_SOCKET_PATH);
+  });
+});
 
 describe('CredentialBroker PKCE', () => {
   beforeEach(() => vi.restoreAllMocks());

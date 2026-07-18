@@ -9,6 +9,7 @@ required=(
   runtime/src/plugin.ts
   runtime/src/native-bridge.ts
   runtime/src/broker.ts
+  runtime/src/credential-constants.ts
   runtime/src/sandbox.ts
   runtime/src/capix-provider.ts
   runtime/src/ai-sdk-provider.ts

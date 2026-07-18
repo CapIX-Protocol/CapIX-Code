@@ -1591,6 +1591,7 @@ fn doctor(root: &Path) -> Result<(), String> {
         root.join("runtime/src/native-bridge.ts"),
         root.join("runtime/src/capix-provider.ts"),
         root.join("runtime/src/broker.ts"),
+        root.join("runtime/src/credential-constants.ts"),
         root.join("runtime/src/sandbox.ts"),
         root.join("runtime/src/ai-sdk-provider.ts"),
         root.join("runtime/node_modules/@capix/runtime-provider/package.json"),
@@ -1732,6 +1733,121 @@ fn mcp_reconnect(root: &std::path::Path) -> Result<ExitCode, String> {
 
 const BROKER_SOCKET_PATH: &str = "/tmp/capix-code-broker.sock";
 const BROKER_PID_FILE: &str = "/tmp/capix-code-broker.pid";
+#[cfg(windows)]
+const BROKER_PIPE_NAME: &str = r"\\.\pipe\capix-code-broker";
+
+#[cfg(windows)]
+fn serve_windows_broker() {
+    use std::ffi::c_void;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, GetLastError, LocalFree, ERROR_PIPE_CONNECTED, INVALID_HANDLE_VALUE,
+    };
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FlushFileBuffers, ReadFile, WriteFile, FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX,
+    };
+    use windows_sys::Win32::System::Pipes::{
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE,
+        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+    };
+
+    let pipe_name: Vec<u16> = BROKER_PIPE_NAME.encode_utf16().chain(Some(0)).collect();
+    // Protected DACL: grant Generic All only to the object owner. Named-pipe
+    // objects are owned by the creating process token's user, so this excludes
+    // other interactive users. PIPE_REJECT_REMOTE_CLIENTS separately prevents
+    // network clients from reaching the endpoint.
+    let sddl: Vec<u16> = "D:P(A;;GA;;;OW)\0".encode_utf16().collect();
+
+    loop {
+        let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
+        let converted = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION_1,
+                &mut descriptor,
+                null_mut(),
+            )
+        };
+        if converted == 0 || descriptor.is_null() {
+            return;
+        }
+        let attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: descriptor,
+            bInheritHandle: 0,
+        };
+        let pipe = unsafe {
+            CreateNamedPipeW(
+                pipe_name.as_ptr(),
+                PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                PIPE_UNLIMITED_INSTANCES,
+                8192,
+                8192,
+                0,
+                &attributes,
+            )
+        };
+        unsafe {
+            LocalFree(descriptor as *mut c_void);
+        }
+        if pipe == INVALID_HANDLE_VALUE {
+            // Another launcher already owns the first, secured pipe instance.
+            return;
+        }
+
+        let connected = unsafe { ConnectNamedPipe(pipe, null_mut()) } != 0
+            || unsafe { GetLastError() } == ERROR_PIPE_CONNECTED;
+        if connected {
+            let mut buffer = [0u8; 8192];
+            let mut bytes_read = 0u32;
+            let read_ok = unsafe {
+                ReadFile(
+                    pipe,
+                    buffer.as_mut_ptr(),
+                    buffer.len() as u32,
+                    &mut bytes_read,
+                    null_mut(),
+                )
+            } != 0;
+            if read_ok && bytes_read > 0 {
+                let response = match serde_json::from_slice::<serde_json::Value>(
+                    &buffer[..bytes_read as usize],
+                ) {
+                    Ok(request) => {
+                        let method = request
+                            .get("method")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("");
+                        handle_broker_request(method)
+                    }
+                    Err(_) => serde_json::json!({"ok": false, "error": "invalid_json"}),
+                };
+                if let Ok(encoded) = serde_json::to_vec(&response) {
+                    let mut bytes_written = 0u32;
+                    unsafe {
+                        WriteFile(
+                            pipe,
+                            encoded.as_ptr(),
+                            encoded.len() as u32,
+                            &mut bytes_written,
+                            null_mut(),
+                        );
+                        FlushFileBuffers(pipe);
+                    }
+                }
+            }
+        }
+        unsafe {
+            DisconnectNamedPipe(pipe);
+            CloseHandle(pipe);
+        }
+    }
+}
 
 /// Start the IPC broker as a background server.
 fn start_broker() {
@@ -1805,14 +1921,7 @@ fn start_broker() {
 
         #[cfg(windows)]
         {
-            use std::io::{Read, Write};
-            use std::os::windows::io::FromRawHandle;
-
-            // Create a named pipe restricted to the current user
-            let pipe_name = r"\\.\pipe\capix-code-broker";
-            // Windows named pipe implementation using CreateNamedPipeW
-            // For now, Windows falls back to the file-based credential store
-            // which is read by the TS broker directly
+            serve_windows_broker();
         }
     });
 }
