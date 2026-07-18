@@ -302,10 +302,10 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-2.1.4` (package.json version baked at compile time)
+/// 2. `capix-code-2.2.0` (package.json version baked at compile time)
 fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-2.1.4".to_string())
+        .unwrap_or_else(|_| "capix-code-2.2.0".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
@@ -410,7 +410,7 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
     } else {
         format!("file://{}", provider_path)
     };
-    config["provider"]["capix"]["npm"] = serde_json::json!("@capix/runtime-provider");
+    config["provider"]["capix"]["npm"] = serde_json::json!(provider_url);
     config["enabled_providers"] = serde_json::json!(["capix"]);
     config["model"] = serde_json::json!("capix/auto");
     config["plugin"] = serde_json::json!([

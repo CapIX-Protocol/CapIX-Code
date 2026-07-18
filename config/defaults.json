@@ -1,7 +1,7 @@
 {
   "provider": {
     "capix": {
-      "npm": "@capix/runtime-provider",
+      "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts",
       "name": "Capix",
       "options": {
         "headers": {
@@ -17,7 +17,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         },
         "supergemma-gemma3-27b": {
@@ -28,7 +28,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         },
         "supergemma-gemma3-12b": {
@@ -39,7 +39,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         },
         "supergemma-gemma3-4b": {
@@ -50,7 +50,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         },
         "supergemma-codegemma-7b": {
@@ -61,7 +61,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         },
         "qwen2.5-coder-7b": {
@@ -72,7 +72,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         },
         "qwen2.5-coder-32b": {
@@ -83,7 +83,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         },
         "llama-3.3-70b-fp8": {
@@ -94,7 +94,7 @@
           },
           "api": {
             "url": "https://www.capix.network/api/v1",
-            "npm": "@capix/runtime-provider"
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
           }
         }
       }
@@ -102,9 +102,7 @@
   },
   "model": "{env:CAPIX_MODEL:capix/auto}",
   "small_model": "capix/supergemma-gemma3-4b",
-  "enabled_providers": [
-    "capix"
-  ],
+  "enabled_providers": ["capix"],
   "permission": {
     "edit": "ask",
     "bash": "ask"
@@ -112,22 +110,14 @@
   "mcp": {
     "capix": {
       "type": "local",
-      "command": [
-        "node",
-        "~/.capix-code/mcp/capix-mcp.js",
-        "server",
-        "--stdio"
-      ],
+      "command": ["node", "~/.capix-code/mcp/capix-mcp.js", "server", "--stdio"],
       "enabled": true,
       "environment": {}
     }
   },
   "share": "manual",
   "autoupdate": false,
-  "plugin": [
-    "./src/native-bridge.ts",
-    "./src/plugin.ts"
-  ],
+  "plugin": ["./src/native-bridge.ts", "./src/plugin.ts"],
   "command": {
     "plan": {
       "description": "Create a research-first implementation plan",
