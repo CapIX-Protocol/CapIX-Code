@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="${1:?artifact directory required}"
 FORBIDDEN='opencode|vast|hetzner|void|vscode'
 
-if find "$ROOT" -path "$ROOT/runtime/node_modules" -prune -o -type f -print | sed "s|$ROOT/||" | grep -Eiq "$FORBIDDEN"; then
+if find "$ROOT" -path "$ROOT/runtime/node_modules" -prune -o -path "$ROOT/mcp/node_modules" -prune -o -type f -print | sed "s|$ROOT/||" | grep -Eiq "$FORBIDDEN"; then
   echo "✗ customer artifact contains a forbidden filename"
   exit 1
 fi

@@ -302,10 +302,10 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-2.2.3` (package.json version baked at compile time)
+/// 2. `capix-code-2.2.4` (package.json version baked at compile time)
 fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-2.2.3".to_string())
+        .unwrap_or_else(|_| "capix-code-2.2.4".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
