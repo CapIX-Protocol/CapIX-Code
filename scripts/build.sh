@@ -141,7 +141,7 @@ MCPWRAPPER
   # Install from the dedicated runtime manifest. The outer npm package has
   # platform selectors which do not belong inside the embedded runtime.
   (cd "$ARTIFACT/runtime" && npm install --omit=dev --ignore-scripts)
-  (cd "$DIR/launcher" && cargo build --locked --release)
+  (cd "$DIR/launcher" && cargo build --release)
   cp "$DIR/launcher/target/release/capix-code$EXE_SUFFIX" "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
   chmod 0755 "$ARTIFACT/bin/capix-code$EXE_SUFFIX"
 
