@@ -252,20 +252,17 @@ echo "  Runtime plugin/provider are staged by scripts/build.sh and verified fail
 echo "▸ Integrating Capix provider into upstream source tree…"
 
 # Copy our src/*.ts files into the upstream's capix-code/src/
+# Only copy files that DON'T import from local subdirectories that
+# don't exist in the upstream tree. plugin.ts and native-bridge.ts
+# load EXTERNALLY at runtime (they need packages not in the upstream).
 for file in \
   ai-sdk-provider.ts broker.ts capix-provider.ts credential-constants.ts \
-  intelligence-client.ts logger.ts mcp-supervisor.ts native-bridge.ts \
-  plugin.ts sandbox.ts url-builder.ts; do
+  logger.ts url-builder.ts; do
   if [ -f "$DIR/src/$file" ]; then
     cp "$DIR/src/$file" "$CAPIX_CODE_DIR/packages/capix-code/src/$file"
   fi
 done
 
-# Copy planner subdir
-if [ -d "$DIR/src/planner" ]; then
-  mkdir -p "$CAPIX_CODE_DIR/packages/capix-code/src/planner"
-  cp -R "$DIR/src/planner/"* "$CAPIX_CODE_DIR/packages/capix-code/src/planner/"
-fi
 
 # Copy our runtime-provider package
 mkdir -p "$CAPIX_CODE_DIR/packages/runtime-provider/src"
