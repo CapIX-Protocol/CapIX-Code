@@ -1,6 +1,6 @@
 [package]
 name = "capix-code"
-version = "2.2.2"
+version = "2.2.3"
 edition = "2021"
 description = "Capix Code: signed native launcher/broker/updater for the Capix Agent Runtime"
 license = "Apache-2.0"
@@ -19,7 +19,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 dirs = "5"
 sha2 = "0.10"
-ed25519-dalek = "2"
+ed25519-dalek = "3"
 base64 = "0.22"
 rand = "0.8"
 url = "2"
