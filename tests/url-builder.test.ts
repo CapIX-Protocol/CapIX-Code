@@ -35,7 +35,7 @@ describe('URL contract: base URL validation', () => {
 describe('URL contract: URL building', () => {
   it('builds an inference URL that is always absolute https', () => {
     const url = buildInferenceUrl('https://www.capix.network/api/v1');
-    expect(url).toBe('https://www.capix.network/api/v1/chat/completions');
+    expect(url).toBe('https://www.capix.network/api/v1/inference/chat/completions');
     expect(url.startsWith('https://')).toBe(true);
     expect(url).not.toMatch(/^\/+/); // never relative
   });
@@ -48,7 +48,7 @@ describe('URL contract: URL building', () => {
 
   it('strips trailing slashes from the base URL', () => {
     expect(buildInferenceUrl('https://api.capix.network/')).toBe(
-      'https://api.capix.network/chat/completions'
+      'https://api.capix.network/inference/chat/completions'
     );
     expect(buildModelsUrl('https://api.capix.network///')).toBe('https://api.capix.network/models');
   });
@@ -70,10 +70,10 @@ describe('URL contract: URL building', () => {
   });
 
   it('throws on relative base URLs (never silently builds a bad URL)', () => {
-    expect(() => buildInferenceUrl('/chat/completions')).toThrow('URL contract violation');
-    expect(() => buildModelsUrl('/api/v1')).toThrow('URL contract violation');
-    expect(() => buildUrl('http://insecure', '/path')).toThrow('URL contract violation');
-    expect(() => buildUrl('', '/path')).toThrow('URL contract violation');
+    expect(() => buildInferenceUrl('/chat/completions')).toThrow('URL violation');
+    expect(() => buildModelsUrl('/api/v1')).toThrow('URL violation');
+    expect(() => buildUrl('http://insecure', '/path')).toThrow('URL violation');
+    expect(() => buildUrl('', '/path')).toThrow('URL violation');
   });
 
   it('handles every supported base URL shape', () => {

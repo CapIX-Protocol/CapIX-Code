@@ -50,14 +50,12 @@ describe('canonical Capix routing', () => {
   });
 
   it('streams through the canonical remote inference endpoint', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response('data: {"type":"content.delta","content":"hello"}\n\ndata: [DONE]\n\n', {
-          status: 200,
-          headers: { 'content-type': 'text/event-stream' },
-        })
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response('data: {"type":"content.delta","content":"hello"}\n\ndata: [DONE]\n\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     const chunks = [];
@@ -76,7 +74,7 @@ describe('canonical Capix routing', () => {
       chunks.push(chunk);
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      'https://www.capix.network/api/v1/chat/completions'
+      'https://www.capix.network/api/v1/inference/chat/completions'
     );
     expect(chunks).toContainEqual({ type: 'text', delta: 'hello' });
   });

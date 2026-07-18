@@ -1,4 +1,3 @@
- 
 /**
  * Capix Code plugin — real entry point.
  *
@@ -22,7 +21,13 @@
  *   a separate router memory. Routing is server-authoritative.
  */
 
-import { tool, type Plugin, type PluginInput, type Hooks, type AuthHook } from '@opencode-ai/plugin';
+import {
+  tool,
+  type Plugin,
+  type PluginInput,
+  type Hooks,
+  type AuthHook,
+} from '@opencode-ai/plugin';
 import type { Permission } from '@opencode-ai/sdk';
 import { join, sep, basename } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -55,7 +60,7 @@ import {
 import { SPECIALIST_AGENTS, getSpecialist } from './planner/specialists.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 
-export const CAPIX_PLUGIN_VERSION = '1.4.0';
+export const CAPIX_PLUGIN_VERSION = '2.0.1';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -273,9 +278,7 @@ function renderPlan(plan: Plan): string {
   }
   for (const s of plan.steps) {
     const dep = s.dependsOn?.length ? ` depends on ${s.dependsOn.join(',')}` : '';
-    lines.push(
-      `STEP ${s.id}: ${s.description} [${s.status}] (~${s.estimatedTurns} turns${dep})`
-    );
+    lines.push(`STEP ${s.id}: ${s.description} [${s.status}] (~${s.estimatedTurns} turns${dep})`);
     if (s.filesToRead.length) lines.push(`  READ: ${s.filesToRead.join(', ')}`);
     if (s.filesToEdit.length) lines.push(`  EDIT: ${s.filesToEdit.join(', ')}`);
     if (s.filesToCreate.length) lines.push(`  CREATE: ${s.filesToCreate.join(', ')}`);
@@ -318,12 +321,23 @@ function extractUserText(parts: unknown): string {
 // chat (and any other surface) can answer "what is the user working on?".
 
 const ENTRY_BASENAMES = new Set([
-  'index.ts', 'index.tsx', 'index.js', 'index.jsx',
-  'main.ts', 'main.js', 'server.ts', 'server.js', 'app.ts', 'app.tsx',
+  'index.ts',
+  'index.tsx',
+  'index.js',
+  'index.jsx',
+  'main.ts',
+  'main.js',
+  'server.ts',
+  'server.js',
+  'app.ts',
+  'app.tsx',
 ]);
 const ENTRY_RELS = new Set([
-  'app/layout.tsx', 'src/index.ts', 'src/main.ts',
-  'pages/index.tsx', 'pages/index.ts',
+  'app/layout.tsx',
+  'src/index.ts',
+  'src/main.ts',
+  'pages/index.tsx',
+  'pages/index.ts',
 ]);
 
 /** Read package.json deps and best-effort guess a framework label. */
@@ -396,7 +410,6 @@ function extractActiveFiles(indexer: CodebaseIndexer, limit = 15): string[] {
     .slice(0, limit)
     .map((fi) => indexer.getRelativePath(fi.path));
 }
-
 
 /**
  * Real plugin factory. Returns Hooks wired to the broker-backed provider,
@@ -517,9 +530,10 @@ export const plugin: Plugin = async (
   const planner = new Planner(contextRetriever, modelInvoker, indexerRoot);
   // Resolve the engine binary path from (1) env var set by launcher, (2) relative
   // to the plugin's own directory, (3) standard install locations.
-  const enginePath = process.env.CAPIX_CODE_ENGINE
-    || join(process.env.HOME || '/home/user', '.capix-code', 'engine', 'capix-engine')
-    || join(process.cwd(), 'dist', 'customer', 'engine', 'capix-engine');
+  const enginePath =
+    process.env.CAPIX_CODE_ENGINE ||
+    join(process.env.HOME || '/home/user', '.capix-code', 'engine', 'capix-engine') ||
+    join(process.cwd(), 'dist', 'customer', 'engine', 'capix-engine');
   const engineCommandResolver: EngineCommandResolver = (config) => {
     if (!existsSync(enginePath)) return null;
     const prompt = `Implement this step: ${config.planStep.description}\n\nFiles to read: ${config.planStep.filesToRead.join(', ') || 'none specified'}\nFiles to edit: ${config.planStep.filesToEdit.join(', ') || 'none specified'}\nFiles to create: ${config.planStep.filesToCreate.join(', ') || 'none specified'}\n\nAfter implementing, run: ${config.planStep.testsToRun.join(' && ') || 'echo no tests'}`;
@@ -535,17 +549,21 @@ export const plugin: Plugin = async (
     await skillsRt.install(s);
     // Register with the Capix Intelligence API (server-backed skill registry)
     try {
-      const intelligence = await import("./intelligence-client.js");
-      await intelligence.registerSkill({
-        id: s.id,
-        source: `first-party:${s.id}`,
-        version: s.version,
-        description: s.description,
-        riskClass: s.permissions.includes("bash") ? "side-effect" : "informational",
-        permissions: s.permissions,
-        trustFloor: "untrusted",
-      }).catch(() => {}); // Non-blocking
-    } catch { /* ignore */ }
+      const intelligence = await import('./intelligence-client.js');
+      await intelligence
+        .registerSkill({
+          id: s.id,
+          source: `first-party:${s.id}`,
+          version: s.version,
+          description: s.description,
+          riskClass: s.permissions.includes('bash') ? 'side-effect' : 'informational',
+          permissions: s.permissions,
+          trustFloor: 'untrusted',
+        })
+        .catch(() => {}); // Non-blocking
+    } catch {
+      /* ignore */
+    }
   }
 
   // Rolling transcript for loss-aware compaction + latest task for skill
@@ -563,28 +581,18 @@ export const plugin: Plugin = async (
       'natural-language query, symbol name, or path fragment. Returns matching ' +
       'files ranked by relevance with reasons.',
     args: {
-      query: z
-        .string()
-        .describe('Natural-language query, symbol name, or path fragment'),
-      limit: z
-        .number()
-        .optional()
-        .describe('Maximum number of files to return (default 10)'),
+      query: z.string().describe('Natural-language query, symbol name, or path fragment'),
+      limit: z.number().optional().describe('Maximum number of files to return (default 10)'),
     },
     async execute(args) {
-      const results = await contextRetriever.findRelevantFiles(
-        args.query,
-        args.limit ?? 10
-      );
+      const results = await contextRetriever.findRelevantFiles(args.query, args.limit ?? 10);
       if (results.length === 0) {
         return {
           title: `capix_search_codebase: ${args.query}`,
           output: 'No matching files found in the codebase index.',
         };
       }
-      const lines = results.map(
-        (r) => `${r.score.toFixed(2)}  ${r.path}  — ${r.reason}`
-      );
+      const lines = results.map((r) => `${r.score.toFixed(2)}  ${r.path}  — ${r.reason}`);
       return {
         title: `capix_search_codebase: ${args.query}`,
         output: lines.join('\n'),
@@ -598,9 +606,7 @@ export const plugin: Plugin = async (
       'Find the definition and all references to a named symbol across the ' +
       'workspace codebase. Returns file:line locations and the symbol type.',
     args: {
-      symbol: z
-        .string()
-        .describe('Exact symbol name (function, class, variable, etc.)'),
+      symbol: z.string().describe('Exact symbol name (function, class, variable, etc.)'),
     },
     async execute(args) {
       const def = codebaseIndexer.findDefinition(args.symbol);
@@ -686,7 +692,8 @@ export const plugin: Plugin = async (
         status: 'in-progress',
       };
       // Use specialist agent if specified, otherwise default to implement
-      const specialistRole = (args as Record<string, unknown>).specialist as string || "implement";
+      const specialistRole =
+        ((args as Record<string, unknown>).specialist as string) || 'implement';
       const specialist = getSpecialist(specialistRole) ?? SPECIALIST_AGENTS.implement;
 
       const config: SubagentConfig = {
@@ -718,8 +725,7 @@ export const plugin: Plugin = async (
   });
 
   // ── MCP Supervisor ─────────────────────────────────────────────────────
-  
-  
+
   const capixHook = createCapixProviderHook();
 
   logger.info('capix plugin loaded', {
@@ -762,7 +768,17 @@ export const plugin: Plugin = async (
           }
           servers.capix = {
             type: 'local',
-            command: [process.env.CAPIX_MCP_PATH || /* eslint-disable @typescript-eslint/no-require-imports */ require('node:path').join(process.env.HOME || '/home/user', '.capix-code', 'mcp', 'capix-mcp.js'), 'server', '--stdio'],
+            command: [
+              process.env.CAPIX_MCP_PATH ||
+                /* eslint-disable @typescript-eslint/no-require-imports */ require('node:path').join(
+                  process.env.HOME || '/home/user',
+                  '.capix-code',
+                  'mcp',
+                  'capix-mcp.js'
+                ),
+              'server',
+              '--stdio',
+            ],
             enabled: true,
             ...(apiKey ? { environment: { CAPIX_API_KEY: apiKey } } : {}),
           };

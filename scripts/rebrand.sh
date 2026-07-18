@@ -216,6 +216,20 @@ for relative in "${PRESENTATION_FILES[@]}"; do
 done
 echo "  ✓ terminal title, splash, logo and customer command copy replaced"
 
+# 6c. Fix split-span: <b>Open</b><b>Code</b> → <b>Capix Code</b>
+for file in \
+  "$CAPIX_CODE_DIR/packages/tui/src/routes/session/sidebar.tsx" \
+  "$CAPIX_CODE_DIR/packages/tui/src/feature-plugins/sidebar/footer.tsx" \
+  "$CAPIX_CODE_DIR/packages/tui/src/feature-plugins/home/footer.tsx" \
+  "$CAPIX_CODE_DIR/packages/tui/src/feature-plugins/home/tips-view.tsx"; do
+  if [ -f "$file" ]; then
+    perl -0pi.bak -e 's/<b>Open<\/b>\s*\n\s*<b>Code<\/b>/<b>Capix Code<\/b>/gs' "$file"
+    perl -0pi.bak -e 's/OpenCode/Capix Code/g' "$file"
+    rm -f "$file.bak"
+  fi
+done
+echo "  ✓ split-span branding fixed"
+
 # 7. Install script references.
 INSTALL="$CAPIX_CODE_DIR/install"
 if [ -f "$INSTALL" ]; then
