@@ -60,7 +60,7 @@ import {
 import { SPECIALIST_AGENTS, getSpecialist } from './planner/specialists.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 
-export const CAPIX_PLUGIN_VERSION = '2.1.0';
+export const CAPIX_PLUGIN_VERSION = '2.1.1';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
