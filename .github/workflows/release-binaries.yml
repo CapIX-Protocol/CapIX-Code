@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   build:
@@ -58,6 +59,14 @@ jobs:
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev pkg-config
       - name: Install overlay dependencies
         run: npm ci
+      - name: Verify immutable release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p 'require("./package.json").version')"
+          test "${{ inputs.version }}" = "$package_version"
+          test "${{ inputs.release_tag }}" = "v$package_version"
+          node scripts/check-release-consistency.mjs "$package_version"
       - name: Verify overlay
         run: |
           npm run compile
@@ -71,6 +80,8 @@ jobs:
       - name: Build complete customer runtime
         shell: bash
         run: bash scripts/build.sh
+      - name: Packaged MCP protocol smoke test
+        run: node scripts/smoke-mcp.mjs dist/customer
       - name: Native launcher smoke test
         shell: bash
         run: |
@@ -101,6 +112,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Verify immutable npm release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p 'require("./package.json").version')"
+          test "${{ inputs.version }}" = "$package_version"
+          test "${{ inputs.release_tag }}" = "v$package_version"
+          node scripts/check-release-consistency.mjs "$package_version"
       - name: Pack cross-platform npm launcher
         run: |
           mkdir -p release-artifacts
@@ -177,3 +196,31 @@ jobs:
             These artifacts are unsigned. Verify the adjacent SHA-256 file before use.
             Each platform was built and smoke-tested on its native GitHub-hosted runner.
             Source commit: `${{ github.sha }}`
+
+  publish-npm:
+    name: Publish npm installer
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Verify release exists before registry publication
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "${{ inputs.release_tag }}" --repo "${{ github.repository }}"
+          test "$(node -p 'require("./package.json").version')" = "${{ inputs.version }}"
+      - name: Publish capix-code
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

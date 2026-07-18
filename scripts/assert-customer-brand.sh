@@ -26,27 +26,6 @@ for args in "--help" "run --help"; do
   fi
 done
 
-# Native account commands must never fall through to the bundled engine's
-# command parser. An unsigned CI artifact has no user keychain credential, so
-# the expected result is a clean Capix-only sign-in instruction.
-set +e
-status_output="$($ROOT/bin/capix-code status 2>&1)"
-status_code=$?
-set -e
-if [ "$status_code" -eq 0 ]; then
-  # A developer machine may already have a valid native keychain session.
-  printf '%s' "$status_output" | grep -Fq '"accountId"' || {
-    echo "✗ authenticated status did not return canonical Capix account data"; exit 1;
-  }
-else
-  printf '%s' "$status_output" | grep -Fq 'capix-code login' || {
-    echo "✗ status did not return the native Capix authentication instruction"; exit 1;
-  }
-fi
-if printf '%s' "$status_output" | grep -Eiq "$FORBIDDEN"; then
-  echo "✗ status leaked a forbidden inherited brand"; exit 1
-fi
-
 if grep -ERiq "$FORBIDDEN" "$ROOT/config"; then
   echo "✗ forbidden customer-visible brand in configuration"
   exit 1

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -8,6 +8,9 @@ import { CredentialBroker } from '../src/broker';
 
 describe('CredentialBroker PKCE', () => {
   beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).capixOAuth;
+  });
 
   it('creates a complete S256 authorization request', async () => {
     const broker = new CredentialBroker();
@@ -25,5 +28,24 @@ describe('CredentialBroker PKCE', () => {
     expect(() => broker.submitAuthorizationCallback({ code: 'code', state: 'wrong' })).toThrow(
       'OAuth state mismatch'
     );
+  });
+
+  it('hands the native bridge the exact ephemeral redirect URI', async () => {
+    let callbackUrl = '';
+    (globalThis as Record<string, unknown>).capixOAuth = {
+      async awaitCallback(authorizeUrl: string, state: string) {
+        callbackUrl = authorizeUrl;
+        return { code: 'authorization-code', state };
+      },
+    };
+
+    const broker = new CredentialBroker();
+    await broker.login();
+
+    const authorizeUrl = new URL(callbackUrl);
+    expect(authorizeUrl.searchParams.get('redirect_uri')).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/callback$/
+    );
+    expect(await broker.authorizationUrl()).toBe(callbackUrl);
   });
 });

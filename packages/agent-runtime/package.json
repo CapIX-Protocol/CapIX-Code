@@ -1,6 +1,6 @@
 {
   "name": "@capix/agent-runtime",
-  "version": "1.4.0",
+  "version": "2.2.5",
   "private": true,
   "type": "module",
   "exports": {

@@ -256,9 +256,24 @@ async function classifyHttpError(res: Response): Promise<never> {
   } catch {
     body = undefined;
   }
-  const capixCode = body?.capixCode ?? `HTTP_${status}`;
-  const message = body?.message ?? res.statusText ?? 'inference request failed';
-  const supportId = body?.supportId;
+  const problem = body as (InferenceErrorResponse & {
+    detail?: string;
+    title?: string;
+    code?: string;
+    error?: string | { message?: string; code?: string };
+  }) | undefined;
+  const nestedError = typeof problem?.error === 'object' ? problem.error : undefined;
+  const capixCode =
+    problem?.capixCode ?? problem?.code ?? nestedError?.code ?? `HTTP_${status}`;
+  const message =
+    problem?.message ??
+    problem?.detail ??
+    nestedError?.message ??
+    (typeof problem?.error === 'string' ? problem.error : undefined) ??
+    problem?.title ??
+    res.statusText ??
+    'inference request failed';
+  const supportId = problem?.supportId;
   const retryAfter = res.headers.get('retry-after');
 
   switch (status) {

@@ -1,6 +1,6 @@
 {
   "name": "capix-code",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "description": "Capix Code — decentralized AI coding agent with GPU marketplace",
   "license": "Apache-2.0",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "files": [
     "bin/",
-    "scripts/",
+    "scripts/postinstall.cjs",
     "dist/customer/config/",
     "README.md",
     "LICENSE"
@@ -22,12 +22,14 @@
     "lint": "eslint src/",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "pretest": "node scripts/prepare-native-addons.mjs node_modules",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "manifest:validate": "node scripts/validate-manifest.mjs manifest/release-manifest.json",
     "manifest:build": "node scripts/build-manifest.mjs",
     "resolve-version": "node scripts/resolve-version.mjs",
+    "release:check": "node scripts/check-release-consistency.mjs",
     "prepack": "node scripts/prepare-npm-meta.mjs",
     "pack:npm-platform": "node scripts/prepare-npm-platform.mjs",
     "postinstall": "node scripts/postinstall.cjs"

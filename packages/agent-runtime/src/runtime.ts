@@ -30,7 +30,7 @@ import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 
 const SESSIONS_DIR = join(homedir(), '.capix-code', 'sessions');
-const RUNTIME_VERSION = '1.4.0';
+const RUNTIME_VERSION = '2.2.5';
 const AGENT_EVENT_VERSION = 1 as const;
 
 interface PersistedSession extends Session {

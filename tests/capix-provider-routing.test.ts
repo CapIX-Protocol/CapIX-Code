@@ -78,4 +78,52 @@ describe('canonical Capix routing', () => {
     );
     expect(chunks).toContainEqual({ type: 'text', delta: 'hello' });
   });
+
+  it('surfaces RFC 7807 detail instead of collapsing errors to HTTP status text', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            type: 'https://www.capix.network/problems/inference-unavailable',
+            title: 'Inference unavailable',
+            detail: 'No live route is currently available for this model.',
+            status: 503,
+            code: 'NO_LIVE_ROUTE',
+            supportId: 'support-test',
+          }),
+          {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { 'content-type': 'application/problem+json' },
+          }
+        )
+      )
+    );
+
+    const consume = async () => {
+      for await (const _chunk of stream(
+        { model: 'capix/auto', messages: [{ role: 'user', content: 'hello' }] },
+        {
+          meta: {
+            client: 'capix-code',
+            clientVersion: '2.2.5',
+            releaseId: 'test',
+            pluginVersion: '2.2.5',
+            acpVersion: '1',
+          },
+        }
+      )) {
+        // The request must fail before yielding customer-visible output.
+      }
+    };
+
+    await expect(consume()).rejects.toMatchObject({
+      status: 503,
+      capixCode: 'NO_LIVE_ROUTE',
+      message: 'No live route is currently available for this model.',
+      supportId: 'support-test',
+      retryClass: 'retry',
+    });
+  });
 });

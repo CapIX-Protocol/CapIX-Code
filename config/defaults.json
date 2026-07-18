@@ -103,6 +103,7 @@
   "model": "{env:CAPIX_MODEL:capix/auto}",
   "small_model": "capix/supergemma-gemma3-4b",
   "enabled_providers": ["capix"],
+  "lsp": true,
   "permission": {
     "edit": "ask",
     "bash": "ask"
@@ -110,7 +111,7 @@
   "mcp": {
     "capix": {
       "type": "local",
-      "command": ["node", "~/.capix-code/mcp/capix-mcp.js", "server", "--stdio"],
+      "command": ["node", "__INSTALL_ROOT__/mcp/capix-mcp.js", "server", "--stdio"],
       "enabled": true,
       "environment": {}
     }

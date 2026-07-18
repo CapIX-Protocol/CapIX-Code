@@ -13,17 +13,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, ExitCode};
 use std::time::Duration;
 
-#[cfg(unix)]
-fn set_permissions(path: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn set_permissions(_path: &Path) -> std::io::Result<()> {
-    Ok(())
-}
-
 #[derive(Parser)]
 #[command(
     name = "capix-code",
@@ -214,13 +203,9 @@ enum AgentCommand {
         task: String,
     },
     /// Resume a session
-    Resume {
-        session_id: String,
-    },
+    Resume { session_id: String },
     /// Cancel a running session
-    Cancel {
-        session_id: String,
-    },
+    Cancel { session_id: String },
 }
 
 #[derive(Subcommand)]
@@ -232,7 +217,6 @@ enum McpCommand {
     /// Restart the MCP server
     Reconnect,
 }
-
 
 fn install_root() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate launcher: {e}"))?;
@@ -302,10 +286,9 @@ fn scrub_environment(command: &mut ProcessCommand) {
 ///
 /// Precedence:
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
-/// 2. `capix-code-2.2.4` (package.json version baked at compile time)
+/// 2. `capix-code-2.2.5` (package.json version baked at compile time)
 fn release_id() -> String {
-    std::env::var("CAPIX_RELEASE_ID")
-        .unwrap_or_else(|_| "capix-code-2.2.4".to_string())
+    std::env::var("CAPIX_RELEASE_ID").unwrap_or_else(|_| "capix-code-2.2.5".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
@@ -413,10 +396,18 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
     config["provider"]["capix"]["npm"] = serde_json::json!(provider_url);
     config["enabled_providers"] = serde_json::json!(["capix"]);
     config["model"] = serde_json::json!("capix/auto");
+    config["lsp"] = serde_json::json!(true);
     config["plugin"] = serde_json::json!([
         runtime_dir.join("src/native-bridge.ts").to_string_lossy(),
         runtime_dir.join("src/plugin.ts").to_string_lossy()
     ]);
+    config["mcp"]["capix"]["command"] = serde_json::json!([
+        "node",
+        root.join("mcp/capix-mcp.js").to_string_lossy(),
+        "server",
+        "--stdio"
+    ]);
+    config["mcp"]["capix"]["enabled"] = serde_json::json!(true);
     let config_content = serde_json::to_string(&config)
         .map_err(|e| format!("cannot encode bundled Capix config: {e}"))?;
     let config_file = root.join("config/runtime-config.json");
@@ -438,7 +429,7 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
             "CAPIX_CODE_DEFAULT_CONFIG",
             root.join("config/defaults.json"),
         )
-.env("CAPIX_CODE_CONFIG_CONTENT", config_content.clone())
+        .env("CAPIX_CODE_CONFIG_CONTENT", config_content.clone())
         .env("OPENCODE_CONFIG_CONTENT", config_content.clone())
         .env("OPENCODE_CONFIG", config_file)
         .env("CAPIX_BASE_URL", "https://www.capix.network/api/v1")
@@ -459,6 +450,50 @@ const WEB_ORIGIN: &str = "https://www.capix.network";
 const KEYRING_SERVICE: &str = "capix-code";
 const KEYRING_ACCOUNT: &str = "oauth-refresh-token";
 
+fn keyring_get_password() -> Result<String, String> {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+            .map_err(|error| error.to_string())
+            .and_then(|entry| entry.get_password().map_err(|error| error.to_string()));
+        let _ = send.send(result);
+    });
+    receive.recv_timeout(Duration::from_secs(15)).map_err(|_| {
+        "OS credential store approval timed out; run `capix-code login` or set CAPIX_API_KEY"
+            .to_string()
+    })?
+}
+
+fn keyring_set_password(value: String) -> Result<(), String> {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+            .map_err(|error| error.to_string())
+            .and_then(|entry| {
+                entry
+                    .set_password(&value)
+                    .map_err(|error| error.to_string())
+            });
+        let _ = send.send(result);
+    });
+    receive
+        .recv_timeout(Duration::from_secs(30))
+        .map_err(|_| "OS credential store approval timed out".to_string())?
+}
+
+fn keyring_delete_password() -> Result<(), String> {
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let result = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+            .map_err(|error| error.to_string())
+            .and_then(|entry| entry.delete_credential().map_err(|error| error.to_string()));
+        let _ = send.send(result);
+    });
+    receive
+        .recv_timeout(Duration::from_secs(15))
+        .map_err(|_| "OS credential store approval timed out".to_string())?
+}
+
 #[derive(Deserialize)]
 struct TokenResponse {
     access_token: String,
@@ -475,7 +510,7 @@ fn runtime() -> Result<tokio::runtime::Runtime, String> {
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(120))
+        .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| format!("cannot initialize secure HTTP client: {e}"))
 }
@@ -577,50 +612,42 @@ fn login() -> Result<ExitCode, String> {
             .await
             .map_err(|e| e.to_string())
     })?;
-    keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
-        .map_err(|e| e.to_string())?
-        .set_password(&token.refresh_token)
+    keyring_set_password(token.refresh_token.clone())
         .map_err(|e| format!("OS credential store rejected token: {e}"))?;
-
-    // Also write to the file-based bridge store so the in-process
-    // CredentialBroker (running inside the Bun engine) can read it via
-    // globalThis.capixSecureStore without direct keyring access.
-    let cred_dir = std::env::var("HOME")
-        .map(|h| std::path::PathBuf::from(h).join(".capix-code"))
-        .unwrap_or_else(|_| std::path::PathBuf::from(".capix-code"));
-    let _ = std::fs::create_dir_all(&cred_dir);
-    let cred_file = cred_dir.join("credentials.json");
-    let mut creds: serde_json::Value = std::fs::read(&cred_file)
-        .ok()
-        .and_then(|d| serde_json::from_slice(&d).ok())
-        .unwrap_or(serde_json::json!({}));
-    if let Some(obj) = creds.as_object_mut() {
-        obj.insert(
-            format!("{KEYRING_SERVICE}:{KEYRING_ACCOUNT}"),
-            serde_json::Value::String(token.refresh_token.clone()),
-        );
-    }
-    let _ = std::fs::write(
-        &cred_file,
-        serde_json::to_vec_pretty(&creds).unwrap_or_default(),
-    );
-    let _ = set_permissions(&cred_file);
+    remove_legacy_credentials_file();
 
     println!("Signed in to Capix Code.");
     Ok(ExitCode::SUCCESS)
 }
 
 fn access_token() -> Result<String, String> {
-    // Try file-based credentials first (no Keychain prompt), then keyring.
-    let refresh = match read_refresh_from_file() {
-        Ok(token) => token,
-        Err(_) => {
-            match keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT) {
-                Ok(entry) => entry.get_password()
-                    .map_err(|e| format!("not signed in; run `capix-code login` ({e})"))?,
-                Err(e) => return Err(format!("not signed in; run `capix-code login` ({e})")),
-            }
+    // Project API keys are a supported noninteractive credential for CI,
+    // headless hosts and unsigned preview builds where macOS may otherwise
+    // display a Keychain ACL prompt. They are never persisted by the launcher.
+    if let Ok(api_key) = std::env::var("CAPIX_API_KEY") {
+        let api_key = api_key.trim();
+        if !api_key.is_empty() {
+            return Ok(api_key.to_string());
         }
+    }
+    // One-time migration for pre-2.2 installs. The plaintext compatibility
+    // file is deleted immediately after importing the refresh token.
+    let refresh = match keyring_get_password() {
+        Ok(token) => token,
+        Err(keyring_error) => match read_refresh_from_file() {
+            Ok(token) => {
+                keyring_set_password(token.clone()).map_err(|e| {
+                    format!("could not migrate session to the OS credential store: {e}")
+                })?;
+                remove_legacy_credentials_file();
+                token
+            }
+            Err(_) => {
+                return Err(format!(
+                    "not signed in; run `capix-code login` ({keyring_error})"
+                ))
+            }
+        },
     };
     let token_result: Result<TokenResponse, String> = runtime()?.block_on(async {
         let response = http_client()?
@@ -644,33 +671,24 @@ fn access_token() -> Result<String, String> {
     let token = match token_result {
         Ok(value) => value,
         Err(_) => {
-            let _ = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).and_then(|e| e.delete_credential());
+            let _ = keyring_delete_password();
             return Err("session expired; run `capix-code login`".into());
         }
     };
-    let _ = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).and_then(|e| e.delete_credential());
-    let _ = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).and_then(|e| e.set_password(&token.refresh_token));
-
-    if let Ok(home) = std::env::var("HOME") {
-        let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
-        let mut creds: serde_json::Value = std::fs::read(&cred_file)
-            .ok()
-            .and_then(|d| serde_json::from_slice(&d).ok())
-            .unwrap_or(serde_json::json!({}));
-        if let Some(obj) = creds.as_object_mut() {
-            obj.insert(
-                format!("{KEYRING_SERVICE}:{KEYRING_ACCOUNT}"),
-                serde_json::Value::String(token.refresh_token.clone()),
-            );
-        }
-        let _ = std::fs::write(
-            &cred_file,
-            serde_json::to_vec_pretty(&creds).unwrap_or_default(),
-        );
-        let _ = set_permissions(&cred_file);
-    }
+    // `set_password` atomically replaces the existing credential. Never
+    // delete the last known-good refresh token before the rotated value has
+    // been durably accepted by the OS credential store.
+    keyring_set_password(token.refresh_token.clone())
+        .map_err(|error| format!("could not rotate the OS credential: {error}"))?;
 
     Ok(token.access_token)
+}
+
+fn remove_legacy_credentials_file() {
+    if let Ok(home) = std::env::var("HOME") {
+        let path = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 fn read_refresh_from_file() -> Result<String, String> {
@@ -718,10 +736,13 @@ fn deploy_llm(model: &str, quote_id: &str) -> Result<ExitCode, String> {
             .bearer_auth(token)
             .header("idempotency-key", &idempotency_key)
             .header("content-type", "application/json")
-            .body(serde_json::to_string(&serde_json::json!({
-                "modelId": model,
-                "quoteId": quote_id,
-            })).map_err(|e| e.to_string())?)
+            .body(
+                serde_json::to_string(&serde_json::json!({
+                    "modelId": model,
+                    "quoteId": quote_id,
+                }))
+                .map_err(|e| e.to_string())?,
+            )
             .send()
             .await
             .map_err(|e| e.to_string())?;
@@ -730,8 +751,10 @@ fn deploy_llm(model: &str, quote_id: &str) -> Result<ExitCode, String> {
         if !status.is_success() {
             return Err(format!("Capix deploy returned {status}: {text}"));
         }
-        serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())
+        serde_json::to_string_pretty(
+            &serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
     })?;
     println!("{body}");
     Ok(ExitCode::SUCCESS)
@@ -758,8 +781,10 @@ fn destroy(id: &str) -> Result<ExitCode, String> {
         if !status.is_success() {
             return Err(format!("Capix destroy returned {status}: {text}"));
         }
-        serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())
+        serde_json::to_string_pretty(
+            &serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
     })?;
     println!("{body}");
     Ok(ExitCode::SUCCESS)
@@ -767,7 +792,10 @@ fn destroy(id: &str) -> Result<ExitCode, String> {
 
 fn uuid() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     format!("{nanos:x}")
 }
 
@@ -786,14 +814,14 @@ fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
             .as_nanos()
     );
     let payload = serde_json::json!({
-        "model": "auto",
+        "model": "capix/auto",
         "messages": [{"role": "user", "content": prompt.join(" ")}],
         "stream": true,
-        "max_tokens": 4096
+        "maxTokens": 4096
     });
     runtime()?.block_on(async {
         let mut response = http_client()?
-            .post(format!("{WEB_ORIGIN}/api/v1/chat/completions"))
+            .post(format!("{WEB_ORIGIN}/api/v1/inference/chat/completions"))
             .bearer_auth(token)
             .header("idempotency-key", request_id)
             .json(&payload)
@@ -836,27 +864,61 @@ fn llm_run(prompt: &[String]) -> Result<ExitCode, String> {
                     }
                     return Ok(());
                 }
-                let v: serde_json::Value =
-                    serde_json::from_str(data).map_err(|e| e.to_string())?;
-                if let Some(r) = v.pointer("/capix/receiptId").and_then(|c| c.as_str()) {
-                    receipt = Some(r.to_string());
-                }
-                if let Some(model) = v.pointer("/capix/route/model").and_then(|c| c.as_str()) {
-                    let region = v.pointer("/capix/route/region").and_then(|c| c.as_str()).unwrap_or("global");
-                    writeln!(out, "\n[routed to {} in {}]\n", model, region).map_err(|e| e.to_string())?;
-                    out.flush().map_err(|e| e.to_string())?;
-                }
-                if let Some(usage) = v.get("usage") {
-                    let input_t = usage.get("prompt_tokens").and_then(|c| c.as_u64()).unwrap_or(0);
-                    let output_t = usage.get("completion_tokens").and_then(|c| c.as_u64()).unwrap_or(0);
-                    let cost = v.pointer("/capix/costMinor").or_else(|| usage.get("cost_minor")).and_then(|c| c.as_str()).unwrap_or("0");
-                    writeln!(out, "\n[usage: {} input, {} output, cost: {} minor]\n", input_t, output_t, cost).map_err(|e| e.to_string())?;
-                    out.flush().map_err(|e| e.to_string())?;
-                }
-                if let Some(content) = v
-                    .pointer("/choices/0/delta/content")
+                let v: serde_json::Value = serde_json::from_str(data).map_err(|e| e.to_string())?;
+                if let Some(r) = v
+                    .get("receiptId")
+                    .or_else(|| v.pointer("/capix/receiptId"))
                     .and_then(|c| c.as_str())
                 {
+                    receipt = Some(r.to_string());
+                }
+                if v.get("type").and_then(|c| c.as_str()) == Some("capix.route") {
+                    let model = v
+                        .get("modelCapability")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("Capix Auto");
+                    let region = v.get("region").and_then(|c| c.as_str()).unwrap_or("global");
+                    writeln!(out, "\n[routed to {} in {}]\n", model, region)
+                        .map_err(|e| e.to_string())?;
+                    out.flush().map_err(|e| e.to_string())?;
+                }
+                if v.get("type").and_then(|c| c.as_str()) == Some("capix.usage") {
+                    let input_t = v.get("inputUnits").and_then(|c| c.as_u64()).unwrap_or(0);
+                    let output_t = v.get("outputUnits").and_then(|c| c.as_u64()).unwrap_or(0);
+                    let cost = v
+                        .pointer("/provisionalCost/amount")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("0");
+                    let scale = v
+                        .pointer("/provisionalCost/scale")
+                        .and_then(|c| c.as_u64())
+                        .unwrap_or(0)
+                        .min(18) as u8;
+                    let cost = format::format_scaled_amount(cost, scale)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let asset = v
+                        .pointer("/provisionalCost/asset")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("USDC");
+                    writeln!(
+                        out,
+                        "\n[usage: {} input, {} output, cost: {} {}]\n",
+                        input_t, output_t, cost, asset
+                    )
+                    .map_err(|e| e.to_string())?;
+                    out.flush().map_err(|e| e.to_string())?;
+                }
+                if v.get("type").and_then(|c| c.as_str()) == Some("capix.error") {
+                    let message = v
+                        .get("message")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("Capix inference failed");
+                    return Err(message.to_string());
+                }
+                if let Some(content) = v.get("content").and_then(|c| c.as_str()).or_else(|| {
+                    v.pointer("/choices/0/delta/content")
+                        .and_then(|c| c.as_str())
+                }) {
                     write!(out, "{content}").map_err(|e| e.to_string())?;
                     out.flush().map_err(|e| e.to_string())?;
                 }
@@ -958,7 +1020,10 @@ fn receipts() -> Result<ExitCode, String> {
         let ids = dep.get("route_receipt_ids").and_then(|v| v.as_array());
         if let Some(ids) = ids {
             for rid in ids {
-                let rid_str = rid.as_str().map(|s| s.to_string()).unwrap_or_else(|| rid.to_string());
+                let rid_str = rid
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| rid.to_string());
                 println!("deployment {dep_id} → receipt {rid_str}");
                 count += 1;
             }
@@ -978,7 +1043,9 @@ fn unavailable(command: &str) -> Result<ExitCode, String> {
 /// Resolve the CPX mint + decimals from env (never prompts for keys).
 /// Returns `(mint_hex, decimals)` for local display only.
 fn cpx_config() -> (Option<String>, u8) {
-    let mint = std::env::var("CAPIX_CPX_MINT").ok().filter(|s| !s.is_empty());
+    let mint = std::env::var("CAPIX_CPX_MINT")
+        .ok()
+        .filter(|s| !s.is_empty());
     let decimals = std::env::var("CAPIX_CPX_DECIMALS")
         .ok()
         .and_then(|s| s.parse::<u8>().ok())
@@ -1021,9 +1088,7 @@ fn api_get_json(path: &str) -> Result<serde_json::Value, String> {
 /// cryptographic check (recompute leaf hash, walk sibling path, compare root)
 /// is performed in-process by `merkle_verify::verify_locally`.
 fn verify_receipt_proof(receipt_id: &str, category: &str) -> Result<ExitCode, String> {
-    let proof_json = api_get_json(&format!(
-        "/api/v1/receipts/{receipt_id}/proof"
-    ))?;
+    let proof_json = api_get_json(&format!("/api/v1/receipts/{receipt_id}/proof"))?;
     // The proof package carries its expected root (either inline or adjacent).
     // Prefer an explicit `root` field, then fall back to a sibling `expected_root`.
     let root_hex = proof_json
@@ -1034,12 +1099,9 @@ fn verify_receipt_proof(receipt_id: &str, category: &str) -> Result<ExitCode, St
             "proof package did not include a Merkle root; cannot verify locally".to_string()
         })?;
     // The proof object itself may be nested under `proof` or be the top-level.
-    let proof_obj = proof_json
-        .get("proof")
-        .unwrap_or(&proof_json);
-    let outcome = merkle_verify::verify_locally(proof_obj, root_hex, category).ok_or_else(
-        || "malformed proof package: could not decode proof structure".to_string(),
-    )?;
+    let proof_obj = proof_json.get("proof").unwrap_or(&proof_json);
+    let outcome = merkle_verify::verify_locally(proof_obj, root_hex, category)
+        .ok_or_else(|| "malformed proof package: could not decode proof structure".to_string())?;
     println!("Capix receipt proof verification");
     println!("─────────────────────────────────");
     println!("receipt_id   : {receipt_id}");
@@ -1097,10 +1159,10 @@ fn verify_receipt_signature(
     if pubkey_hex.is_empty() || signature_hex.is_empty() {
         return Ok(false);
     }
-    let pk_bytes = hex_decode_sig(pubkey_hex)
-        .ok_or_else(|| "invalid Ed25519 public key hex".to_string())?;
-    let sig_bytes = hex_decode_sig(signature_hex)
-        .ok_or_else(|| "invalid Ed25519 signature hex".to_string())?;
+    let pk_bytes =
+        hex_decode_sig(pubkey_hex).ok_or_else(|| "invalid Ed25519 public key hex".to_string())?;
+    let sig_bytes =
+        hex_decode_sig(signature_hex).ok_or_else(|| "invalid Ed25519 signature hex".to_string())?;
     if pk_bytes.len() != 32 {
         return Err(format!(
             "Ed25519 public key must be 32 bytes (got {})",
@@ -1205,20 +1267,13 @@ fn settlement_proof_balance() -> Result<ExitCode, String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| "balance-proof response missing root".to_string())?;
     let proof_obj = payload.get("proof").unwrap_or(&payload);
-    let outcome = merkle_verify::verify_locally(
-        proof_obj,
-        root_hex,
-        merkle_verify::ROUTE_RECEIPT_CATEGORY,
-    )
-    .or_else(|| {
-        // Balance proofs use the account category; retry with it.
-        merkle_verify::verify_locally(
-            proof_obj,
-            root_hex,
-            "capix:settlement:account:v1",
-        )
-    })
-    .ok_or_else(|| "malformed balance proof package".to_string())?;
+    let outcome =
+        merkle_verify::verify_locally(proof_obj, root_hex, merkle_verify::ROUTE_RECEIPT_CATEGORY)
+            .or_else(|| {
+                // Balance proofs use the account category; retry with it.
+                merkle_verify::verify_locally(proof_obj, root_hex, "capix:settlement:account:v1")
+            })
+            .ok_or_else(|| "malformed balance proof package".to_string())?;
     println!("Capix balance proof verification");
     println!("─────────────────────────────────");
     println!("root         : {}", outcome.root_hex);
@@ -1235,21 +1290,15 @@ fn settlement_proof_balance() -> Result<ExitCode, String> {
 
 /// Usage proof — fetch + verify a Merkle usage proof for a receipt.
 fn settlement_proof_usage(receipt_id: &str) -> Result<ExitCode, String> {
-    let payload = api_get_json(&format!(
-        "/api/v1/settlement/usage-proof/{receipt_id}"
-    ))?;
+    let payload = api_get_json(&format!("/api/v1/settlement/usage-proof/{receipt_id}"))?;
     let root_hex = payload
         .get("root")
         .or_else(|| payload.get("expected_root"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| "usage-proof response missing root".to_string())?;
     let proof_obj = payload.get("proof").unwrap_or(&payload);
-    let outcome = merkle_verify::verify_locally(
-        proof_obj,
-        root_hex,
-        "capix:settlement:usage:v1",
-    )
-    .ok_or_else(|| "malformed usage proof package".to_string())?;
+    let outcome = merkle_verify::verify_locally(proof_obj, root_hex, "capix:settlement:usage:v1")
+        .ok_or_else(|| "malformed usage proof package".to_string())?;
     println!("Capix usage proof verification");
     println!("─────────────────────────────────");
     println!("receipt_id   : {receipt_id}");
@@ -1308,9 +1357,7 @@ fn solana_transaction(signature: &str) -> Result<ExitCode, String> {
     let byte_len = decoded.as_ref().map(|b| b.len()).unwrap_or(0);
     let valid = decoded.as_ref().map(|b| b.len() == 64).unwrap_or(false);
     let cluster = solana_cluster();
-    let explorer = format!(
-        "https://explorer.solana.com/tx/{signature}?cluster={cluster}"
-    );
+    let explorer = format!("https://explorer.solana.com/tx/{signature}?cluster={cluster}");
     println!("Capix Solana transaction (read-only)");
     println!("─────────────────────────────────────");
     println!("signature   : {signature}");
@@ -1346,9 +1393,7 @@ fn balance(asset: Option<&str>) -> Result<ExitCode, String> {
                     .get("available")
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<u64>().ok())
-                    .or_else(|| {
-                        cpx.get("available").and_then(|v| v.as_u64())
-                    })
+                    .or_else(|| cpx.get("available").and_then(|v| v.as_u64()))
                     .unwrap_or(0);
                 let held_minor = cpx
                     .get("held")
@@ -1392,8 +1437,7 @@ fn balance(asset: Option<&str>) -> Result<ExitCode, String> {
             ));
         }
         None => {
-            let body = serde_json::to_string_pretty(&billing)
-                .map_err(|e| e.to_string())?;
+            let body = serde_json::to_string_pretty(&billing).map_err(|e| e.to_string())?;
             println!("{body}");
         }
     }
@@ -1419,10 +1463,7 @@ fn billing_history(asset: Option<&str>) -> Result<ExitCode, String> {
                 let mut shown = 0usize;
                 let (_, decimals) = cpx_config();
                 for entry in entries {
-                    let asset = entry
-                        .get("asset")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let asset = entry.get("asset").and_then(|v| v.as_str()).unwrap_or("");
                     if asset.eq_ignore_ascii_case("CPX") {
                         let amount_minor = entry
                             .get("amountMinor")
@@ -1434,10 +1475,7 @@ fn billing_history(asset: Option<&str>) -> Result<ExitCode, String> {
                             .get("timestamp")
                             .and_then(|v| v.as_str())
                             .unwrap_or("?");
-                        let kind = entry
-                            .get("kind")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("?");
+                        let kind = entry.get("kind").and_then(|v| v.as_str()).unwrap_or("?");
                         println!(
                             "{ts}  {kind}  {}",
                             format::format_cpx_display(amount_minor, decimals)
@@ -1451,9 +1489,7 @@ fn billing_history(asset: Option<&str>) -> Result<ExitCode, String> {
             println!("\nCPX is {}", format::CPX_BURN_NOTICE);
         }
         Some(other) => {
-            return Err(format!(
-                "unsupported asset '{other}'; use --asset CPX"
-            ));
+            return Err(format!("unsupported asset '{other}'; use --asset CPX"));
         }
         None => {
             let body = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
@@ -1512,8 +1548,18 @@ fn quote(prompt: &[String], asset: Option<&str>, model: Option<&str>) -> Result<
 }
 
 fn auth_status() -> Result<ExitCode, String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string());
-    match entry.and_then(|e| e.get_password().map_err(|e| e.to_string())) {
+    if std::env::var("CAPIX_API_KEY")
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+    {
+        println!("Authenticated with a Capix project API key.");
+        if let Err(e) = api_get("/api/v1/me") {
+            eprintln!("capix-code: the project API key could not fetch account info: {e}");
+            return Ok(ExitCode::FAILURE);
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
+    match keyring_get_password() {
         Ok(_) => {
             println!("Signed in to Capix Code.");
             if let Err(e) = api_get("/api/v1/me") {
@@ -1529,8 +1575,7 @@ fn auth_status() -> Result<ExitCode, String> {
 }
 
 fn auth_reset() -> Result<ExitCode, String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string());
-    let _ = entry.and_then(|e| e.delete_credential().map_err(|e| e.to_string()));
+    let _ = keyring_delete_password();
     if let Ok(home) = std::env::var("HOME") {
         let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
         let _ = std::fs::remove_file(&cred_file);
@@ -1570,12 +1615,14 @@ fn doctor(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-
 /// Check MCP server status
 fn mcp_status(root: &std::path::Path) -> Result<ExitCode, String> {
     let mcp_path = root.join("mcp").join("capix-mcp.js");
     if !mcp_path.is_file() {
-        println!("MCP: Not installed (bundled path missing: {})", mcp_path.display());
+        println!(
+            "MCP: Not installed (bundled path missing: {})",
+            mcp_path.display()
+        );
         return Ok(ExitCode::FAILURE);
     }
     let token = access_token().ok();
@@ -1620,7 +1667,10 @@ fn mcp_doctor(root: &std::path::Path) -> Result<ExitCode, String> {
         }
     }
     // 4. Check MCP dependencies
-    let sdk_path = root.join("mcp").join("node_modules").join("@modelcontextprotocol");
+    let sdk_path = root
+        .join("mcp")
+        .join("node_modules")
+        .join("@modelcontextprotocol");
     if sdk_path.is_dir() {
         println!("✓ MCP SDK present");
     } else {
@@ -1652,7 +1702,14 @@ fn mcp_reconnect(root: &std::path::Path) -> Result<ExitCode, String> {
         .arg(mcp_path)
         .arg("server")
         .arg("--stdio")
-        .env("CAPIX_API_KEY", if env_token.is_empty() { token } else { env_token })
+        .env(
+            "CAPIX_API_KEY",
+            if env_token.is_empty() {
+                token
+            } else {
+                env_token
+            },
+        )
         .env("CAPIX_BASE_URL", WEB_ORIGIN)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -1678,20 +1735,15 @@ const BROKER_PID_FILE: &str = "/tmp/capix-code-broker.pid";
 
 /// Start the IPC broker as a background server.
 fn start_broker() {
-    // Check if broker is already running
-    if let Ok(pid_str) = std::fs::read_to_string(BROKER_PID_FILE) {
-        if let Ok(pid) = pid_str.trim().parse::<i32>() {
-            // Check if process exists
-            if std::process::Command::new("kill")
-                .args(["-0", &pid.to_string()])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-            {
-                return; // Broker already running
-            }
-        }
+    // A PID can be reused after a short-lived command exits. Treat the broker
+    // socket itself as the liveness probe so a stale PID can never suppress
+    // credential refresh for a later interactive session.
+    #[cfg(unix)]
+    if std::os::unix::net::UnixStream::connect(BROKER_SOCKET_PATH).is_ok() {
+        return;
     }
+    let _ = std::fs::remove_file(BROKER_SOCKET_PATH);
+    let _ = std::fs::remove_file(BROKER_PID_FILE);
 
     // Write our PID
     let _ = std::fs::write(BROKER_PID_FILE, std::process::id().to_string());
@@ -1702,8 +1754,8 @@ fn start_broker() {
 
         #[cfg(unix)]
         {
-            use std::os::unix::net::UnixListener;
             use std::os::unix::fs::PermissionsExt;
+            use std::os::unix::net::UnixListener;
 
             // Remove stale socket
             let _ = std::fs::remove_file(BROKER_SOCKET_PATH);
@@ -1743,7 +1795,11 @@ fn start_broker() {
                 let method = request.get("method").and_then(|m| m.as_str()).unwrap_or("");
                 let response = handle_broker_request(method);
 
-                let _ = stream.write_all(serde_json::to_string(&response).unwrap_or_default().as_bytes());
+                let _ = stream.write_all(
+                    serde_json::to_string(&response)
+                        .unwrap_or_default()
+                        .as_bytes(),
+                );
             }
         }
 
@@ -1751,7 +1807,7 @@ fn start_broker() {
         {
             use std::io::{Read, Write};
             use std::os::windows::io::FromRawHandle;
-            
+
             // Create a named pipe restricted to the current user
             let pipe_name = r"\\.\pipe\capix-code-broker";
             // Windows named pipe implementation using CreateNamedPipeW
@@ -1778,13 +1834,16 @@ fn handle_broker_request(method: &str) -> serde_json::Value {
                                     .get(format!("{WEB_ORIGIN}/api/v1/me"))
                                     .bearer_auth(&token)
                                     .timeout(std::time::Duration::from_secs(5))
-                                    .send().await;
+                                    .send()
+                                    .await;
                                 res.map(|r| r.status().is_success()).unwrap_or(false)
                             })
                         } else {
                             false
                         }
-                    }).join().unwrap_or(false);
+                    })
+                    .join()
+                    .unwrap_or(false);
                     serde_json::json!({
                         "ok": true,
                         "result": {
@@ -1798,29 +1857,24 @@ fn handle_broker_request(method: &str) -> serde_json::Value {
                         "authenticated": false,
                         "reason": e,
                     }
-                })
-            }
-        }
-        "token.get" => {
-            match access_token() {
-                Ok(token) => serde_json::json!({
-                    "ok": true,
-                    "result": {
-                        "accessToken": token,
-                        "expiresAt": format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() + 900).unwrap_or(0))
-                    }
                 }),
-                Err(e) => serde_json::json!({
-                    "ok": false,
-                    "error": e,
-                })
             }
         }
+        "token.get" => match access_token() {
+            Ok(token) => serde_json::json!({
+                "ok": true,
+                "result": {
+                    "accessToken": token,
+                    "expiresAt": format!("{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() + 900).unwrap_or(0))
+                }
+            }),
+            Err(e) => serde_json::json!({
+                "ok": false,
+                "error": e,
+            }),
+        },
         "token.invalidate" => {
-            let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT);
-            if let Ok(e) = entry {
-                let _ = e.delete_credential();
-            }
+            let _ = keyring_delete_password();
             // Also clean up file-based store
             if let Ok(home) = std::env::var("HOME") {
                 let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
@@ -1836,10 +1890,7 @@ fn handle_broker_request(method: &str) -> serde_json::Value {
                     .bearer_auth(token)
                     .send();
             }
-            let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT);
-            if let Ok(e) = entry {
-                let _ = e.delete_credential();
-            }
+            let _ = keyring_delete_password();
             if let Ok(home) = std::env::var("HOME") {
                 let cred_file = std::path::PathBuf::from(home).join(".capix-code/credentials.json");
                 let _ = std::fs::remove_file(cred_file);
@@ -1868,9 +1919,7 @@ fn main() -> ExitCode {
         Command::Doctor => doctor(&root).map(|_| ExitCode::SUCCESS),
         Command::Login => login(),
         Command::Logout => {
-            let entry =
-                keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT).map_err(|e| e.to_string());
-            match entry.and_then(|e| e.delete_credential().map_err(|e| e.to_string())) {
+            match keyring_delete_password() {
                 Ok(_) => {
                     // Also clean up the file-based bridge store
                     if let Ok(home) = std::env::var("HOME") {
@@ -1926,10 +1975,17 @@ fn main() -> ExitCode {
                 let engine = engine_path(&root);
                 let mut cmd = ProcessCommand::new(&engine);
                 cmd.arg("--eval")
-                   .arg(std::format!("import('{}').then(m=>m.startAcpServer())", plugin_path.display()))
-                   .env("CAPIX_ACP_STARTED", "1");
+                    .arg(std::format!(
+                        "import('{}').then(m=>m.startAcpServer())",
+                        plugin_path.display()
+                    ))
+                    .env("CAPIX_ACP_STARTED", "1");
                 match cmd.status() {
-                    Ok(status) => Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE }),
+                    Ok(status) => Ok(if status.success() {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::FAILURE
+                    }),
                     Err(e) => Err(format!("Failed to start agent runtime: {e}")),
                 }
             } else {
@@ -1953,9 +2009,7 @@ fn main() -> ExitCode {
             SettlementCommand::Status => settlement_status(),
             SettlementCommand::Epochs => settlement_epochs(),
             SettlementCommand::ProofBalance => settlement_proof_balance(),
-            SettlementCommand::ProofUsage { receipt_id } => {
-                settlement_proof_usage(&receipt_id)
-            }
+            SettlementCommand::ProofUsage { receipt_id } => settlement_proof_usage(&receipt_id),
         },
         Command::Receipts { subcommand } => match subcommand {
             ReceiptsCommand::List => receipts(),
@@ -1973,9 +2027,11 @@ fn main() -> ExitCode {
         Command::Billing { subcommand } => match subcommand {
             BillingCommand::History { asset } => billing_history(asset.as_deref()),
         },
-        Command::Quote { prompt, asset, model } => {
-            quote(&prompt, asset.as_deref(), model.as_deref())
-        }
+        Command::Quote {
+            prompt,
+            asset,
+            model,
+        } => quote(&prompt, asset.as_deref(), model.as_deref()),
         Command::Models => api_get("/api/v1/models"),
         Command::Instances => api_get("/api/v1/deployments"),
         Command::Deploy { subcommand } => match subcommand {

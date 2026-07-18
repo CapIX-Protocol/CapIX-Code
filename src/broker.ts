@@ -171,6 +171,18 @@ export class CredentialBroker {
   }
 
   private async _doRefresh(): Promise<void> {
+    // Packaged Capix Code delegates refresh to the native broker so refresh
+    // material never crosses into the TypeScript engine. This is also the
+    // recovery path after a gateway 401 during a long-running session.
+    const brokerToken = await this.getBrokerToken().catch(() => null);
+    if (brokerToken) {
+      this.sessionAccess = {
+        token: brokerToken,
+        expiresAt: new Date(Date.now() + 14 * 60 * 1000),
+      };
+      return;
+    }
+
     // Migrate legacy credentials on first use
     if (!this.migrated) { this.migrated = true; await this.migrateLegacyCredentials(); }
     const refresh = await this.loadRefreshToken();
@@ -240,7 +252,13 @@ export class CredentialBroker {
     }
     const port = addr.port;
     const redirectUri = `http://127.0.0.1:${port}/callback`;
-    this.callbackServer = server;
+    // This socket exists only to obtain a free ephemeral port. The native
+    // callback bridge owns the actual HTTP listener, so release the probe
+    // before asking it to bind the same redirect URI.
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    );
+    this.callbackServer = null;
     this.redirectUri = redirectUri;
 
     // Build the authorize URL; the real broker opens the system browser.

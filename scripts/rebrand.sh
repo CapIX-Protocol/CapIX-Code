@@ -31,6 +31,10 @@ if [ -f "$SCRIPT_SRC" ]; then
   sed -i.bak 's/env\.OPENCODE_CHANNEL/env.CAPIX_CODE_CHANNEL/g' "$SCRIPT_SRC"
   sed -i.bak 's/OPENCODE_CHANNEL/CAPIX_CODE_CHANNEL/g' "$SCRIPT_SRC"
   sed -i.bak 's/process\.env\["OPENCODE_CHANNEL"\]/process.env["CAPIX_CODE_CHANNEL"]/g' "$SCRIPT_SRC"
+  if ! grep -Fq 'CAPIX_CODE_VERSION: process.env["CAPIX_CODE_VERSION"]' "$SCRIPT_SRC"; then
+    sed -i.bak '/CAPIX_CODE_CHANNEL: process.env\["CAPIX_CODE_CHANNEL"\],/a\
+  CAPIX_CODE_VERSION: process.env["CAPIX_CODE_VERSION"],' "$SCRIPT_SRC"
+  fi
   rm -f "$SCRIPT_SRC.bak"
   echo "  ✓ script package env vars rebranded"
 fi

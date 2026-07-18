@@ -246,7 +246,10 @@ pub fn proof_from_json(json: &serde_json::Value) -> Option<Proof> {
     let leaf_category = obj.get("leaf_category")?.as_str()?.to_string();
     let leaf_version = obj.get("leaf_version")?.as_i64()? as u32;
     let leaf_arr = obj.get("leaf")?.as_array()?;
-    let leaf: Vec<Field> = leaf_arr.iter().map(field_from_json).collect::<Option<_>>()?;
+    let leaf: Vec<Field> = leaf_arr
+        .iter()
+        .map(field_from_json)
+        .collect::<Option<_>>()?;
     let leaf_index: u64 = obj.get("leaf_index")?.as_str()?.parse().ok()?;
     let leaf_count: u64 = obj.get("leaf_count")?.as_str()?.parse().ok()?;
     let path_arr = obj.get("path")?.as_array()?;
@@ -282,11 +285,7 @@ pub fn proof_from_json(json: &serde_json::Value) -> Option<Proof> {
 ///
 /// Returns `false` for any verification or decode failure — never panics on
 /// a malformed proof.
-pub fn verify(
-    proof: &Proof,
-    root: &[u8; 32],
-    expected_category: &str,
-) -> bool {
+pub fn verify(proof: &Proof, root: &[u8; 32], expected_category: &str) -> bool {
     // §6.1 step 2: assert proof.leafCategory == expected category
     if proof.leaf_category != expected_category {
         return false;
@@ -401,11 +400,9 @@ mod tests {
     const ROOT_SINGLE_HEX: &str =
         "5a2f84852da8c616d0b4b2e0670ebce58f2886b377df9bb38871a11654980f0c";
     /// Root for the two-leaf tree (TS `buildRoot([lh1, lh2])`).
-    const ROOT_MULTI_HEX: &str =
-        "81f336ba4987d8ee76ed3d6c11eb23706edb1e61df49a8f9f6905df72c9c04ac";
+    const ROOT_MULTI_HEX: &str = "81f336ba4987d8ee76ed3d6c11eb23706edb1e61df49a8f9f6905df72c9c04ac";
     /// Leaf hash from the TS `leafHash(...)` for this leaf.
-    const LEAF_HASH_HEX: &str =
-        "d4ca0a94a38fbaeac990a3735a5c979a8115f8c48098907e2626e3caae7ee52a";
+    const LEAF_HASH_HEX: &str = "d4ca0a94a38fbaeac990a3735a5c979a8115f8c48098907e2626e3caae7ee52a";
 
     #[test]
     fn recompute_leaf_hash_matches_ts_reference() {
@@ -420,8 +417,8 @@ mod tests {
     #[test]
     fn verifies_multi_leaf_proof_against_ts_root() {
         let json: serde_json::Value = serde_json::from_str(PROOF_JSON_MULTI).unwrap();
-        let out = verify_locally(&json, ROOT_MULTI_HEX, "capix:settlement:account:v1")
-            .expect("decode");
+        let out =
+            verify_locally(&json, ROOT_MULTI_HEX, "capix:settlement:account:v1").expect("decode");
         assert!(out.verified, "multi-leaf proof should verify locally");
     }
 
@@ -429,8 +426,7 @@ mod tests {
     fn rejects_wrong_root() {
         let json: serde_json::Value = serde_json::from_str(PROOF_JSON_MULTI).unwrap();
         let out =
-            verify_locally(&json, ROOT_SINGLE_HEX, "capix:settlement:account:v1")
-                .expect("decode");
+            verify_locally(&json, ROOT_SINGLE_HEX, "capix:settlement:account:v1").expect("decode");
         assert!(
             !out.verified,
             "multi-leaf proof must NOT verify against the single-leaf root"
@@ -440,8 +436,7 @@ mod tests {
     #[test]
     fn rejects_wrong_category() {
         let json: serde_json::Value = serde_json::from_str(PROOF_JSON_MULTI).unwrap();
-        let out = verify_locally(&json, ROOT_MULTI_HEX, "capix:receipt:route:v1")
-            .expect("decode");
+        let out = verify_locally(&json, ROOT_MULTI_HEX, "capix:receipt:route:v1").expect("decode");
         assert!(!out.verified, "cross-category proof must be rejected");
     }
 

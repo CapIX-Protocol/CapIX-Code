@@ -80,7 +80,7 @@ export class McpSupervisor {
       params: {
         protocolVersion: '2024-11-05',
         capabilities: {},
-        clientInfo: { name: 'capix-code', version: '1.4.0' },
+        clientInfo: { name: 'capix-code', version: '2.2.5' },
       },
     }) + '\n';
     this.process.stdin.write(initRequest);

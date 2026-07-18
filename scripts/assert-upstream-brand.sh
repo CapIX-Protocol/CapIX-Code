@@ -8,6 +8,8 @@ SURFACES=(
   packages/tui/src/logo.ts
   packages/tui/src/app.tsx
   packages/tui/src/util/presentation.ts
+  packages/tui/src/routes/session/sidebar.tsx
+  packages/tui/src/routes/session/footer.tsx
   packages/capix-code/src/cli/ui.ts
   packages/capix-code/src/index.ts
   packages/capix-code/src/cli/error.ts
@@ -34,6 +36,10 @@ for file in "${SURFACES[@]}"; do
     exit 1
   fi
 done
+if grep -Eq '<span>Open</span>|<span>Code</span>' "$ROOT/packages/tui/src/routes/session/sidebar.tsx"; then
+  echo "✗ split predecessor wordmark remains in the interactive TUI footer"
+  exit 1
+fi
 grep -Fq 'CAPIX CODE' "$ROOT/packages/capix-code/src/cli/ui.ts" || {
   echo "✗ Capix Code startup wordmark is missing"
   exit 1
@@ -41,6 +47,10 @@ grep -Fq 'CAPIX CODE' "$ROOT/packages/capix-code/src/cli/ui.ts" || {
 grep -Fq 'export const identity' "$ROOT/packages/tui/src/logo.ts" &&
   grep -Fq 'CAPIX CODE' "$ROOT/packages/tui/src/logo.ts" || {
   echo "✗ Capix Code TUI identity is missing"
+  exit 1
+}
+grep -Fq 'CAPIX_CODE_VERSION: process.env["CAPIX_CODE_VERSION"]' "$ROOT/packages/script/src/index.ts" || {
+  echo "✗ prepared build cannot receive the Capix release version"
   exit 1
 }
 echo "✓ prepared engine customer presentation sources are Capix-only"

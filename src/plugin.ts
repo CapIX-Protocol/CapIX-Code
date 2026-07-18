@@ -60,7 +60,7 @@ import {
 import { SPECIALIST_AGENTS, getSpecialist } from './planner/specialists.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 
-export const CAPIX_PLUGIN_VERSION = '2.2.4';
+export const CAPIX_PLUGIN_VERSION = '2.2.5';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -462,6 +462,7 @@ export const plugin: Plugin = async (
   // runs in the background and is non-blocking: the hooks degrade gracefully
   // (empty orientation) until the first index is ready.
   const indexerRoot = opts.workspaceRoot ?? input.directory ?? process.cwd();
+  const hasExplicitWorkspace = Boolean(opts.workspaceRoot ?? input.directory);
   const codebaseIndexer = new CodebaseIndexer(indexerRoot);
   const contextRetriever = new ContextRetriever(codebaseIndexer);
 
@@ -508,17 +509,19 @@ export const plugin: Plugin = async (
     }, 1500);
   }
   codebaseIndexer.onIndexUpdated(() => scheduleContextSync());
-  codebaseIndexer
-    .indexAll()
-    .then(() => {
-      codebaseIndexer.startWatch();
-      scheduleContextSync();
-    })
-    .catch((err) =>
-      logger.warn('capix plugin: codebase indexAll failed', {
-        error: (err as Error)?.message,
+  if (hasExplicitWorkspace) {
+    codebaseIndexer
+      .indexAll()
+      .then(() => {
+        codebaseIndexer.startWatch();
+        scheduleContextSync();
       })
-    );
+      .catch((err) =>
+        logger.warn('capix plugin: codebase indexAll failed', {
+          error: (err as Error)?.message,
+        })
+      );
+  }
 
   // ── Planner / SubagentManager / ContextCompactor / SkillsRuntime ──────
   // The planner decomposes a request into checkpointable steps; subagents run
@@ -547,11 +550,11 @@ export const plugin: Plugin = async (
   const skillsRt = new SkillsRuntime();
   for (const s of BUILTIN_SKILLS) {
     await skillsRt.install(s);
-    // Register with the Capix Intelligence API (server-backed skill registry)
-    try {
-      const intelligence = await import('./intelligence-client.js');
-      await intelligence
-        .registerSkill({
+    // Register with the server-backed skill registry off the startup path.
+    // Network/auth latency must never delay provider initialization.
+    void import('./intelligence-client.js')
+      .then((intelligence) =>
+        intelligence.registerSkill({
           id: s.id,
           source: `first-party:${s.id}`,
           version: s.version,
@@ -560,10 +563,8 @@ export const plugin: Plugin = async (
           permissions: s.permissions,
           trustFloor: 'untrusted',
         })
-        .catch(() => {}); // Non-blocking
-    } catch {
-      /* ignore */
-    }
+      )
+      .catch(() => {});
   }
 
   // Rolling transcript for loss-aware compaction + latest task for skill

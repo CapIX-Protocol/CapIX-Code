@@ -41,6 +41,33 @@ pub fn format_cpx_display(amount_minor: u64, decimals: u8) -> String {
     format!("{whole}.{frac_str}")
 }
 
+/// Format a non-negative integer string with an explicit decimal scale.
+/// This accepts strings so gateway cost values cannot overflow a local u64.
+pub fn format_scaled_amount(amount: &str, scale: u8) -> Option<String> {
+    if amount.is_empty() || !amount.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    if scale == 0 {
+        return Some(amount.trim_start_matches('0').to_string()).map(|value| {
+            if value.is_empty() {
+                "0".to_string()
+            } else {
+                value
+            }
+        });
+    }
+    let width = scale as usize;
+    let padded = if amount.len() <= width {
+        format!("{}{}", "0".repeat(width + 1 - amount.len()), amount)
+    } else {
+        amount.to_string()
+    };
+    let split = padded.len() - width;
+    let whole = padded[..split].trim_start_matches('0');
+    let whole = if whole.is_empty() { "0" } else { whole };
+    Some(format!("{}.{}", whole, &padded[split..]))
+}
+
 /// Format a CPX amount with its USD reference price, integer-only.
 ///
 /// `cpx_minor`     — CPX amount in minor units (lamports).
@@ -52,11 +79,7 @@ pub fn format_cpx_display(amount_minor: u64, decimals: u8) -> String {
 /// The reference is computed as `cpx_whole * usd_price` using integer math,
 /// returning a string like `"1.500000000 CPX (≈ $5.25 USD)"`. A zero or
 /// missing price yields `"(USD reference unavailable)"`.
-pub fn format_usd_reference(
-    cpx_minor: u64,
-    cpx_decimals: u8,
-    price_usd_minor: u64,
-) -> String {
+pub fn format_usd_reference(cpx_minor: u64, cpx_decimals: u8, price_usd_minor: u64) -> String {
     let cpx_str = format_cpx_display(cpx_minor, cpx_decimals);
     if price_usd_minor == 0 {
         return format!("{cpx_str} CPX (≈ USD reference unavailable)");
@@ -72,8 +95,7 @@ pub fn format_usd_reference(
 }
 
 /// The standard notice shown alongside any CPX balance display.
-pub const CPX_BURN_NOTICE: &str =
-    "burned at settlement — providers never paid in CPX";
+pub const CPX_BURN_NOTICE: &str = "burned at settlement — providers never paid in CPX";
 
 #[cfg(test)]
 mod tests {
@@ -109,5 +131,15 @@ mod tests {
     fn fraction_pads_correctly() {
         // 0.1 CPX = 100_000_000 lamports at 9 decimals → "0.100000000"
         assert_eq!(format_cpx_display(100_000_000, 9), "0.100000000");
+    }
+
+    #[test]
+    fn formats_gateway_scaled_cost_without_float_rounding() {
+        assert_eq!(format_scaled_amount("360", 6).as_deref(), Some("0.000360"));
+        assert_eq!(
+            format_scaled_amount("1234567", 6).as_deref(),
+            Some("1.234567")
+        );
+        assert_eq!(format_scaled_amount("not-money", 6), None);
     }
 }
