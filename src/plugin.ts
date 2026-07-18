@@ -28,6 +28,7 @@ import {
   type Hooks,
   type AuthHook,
 } from '@opencode-ai/plugin';
+import { z } from 'zod';
 import type { Permission } from '@opencode-ai/sdk';
 import { join, sep, basename } from 'node:path';
 import { readFileSync, existsSync } from 'node:fs';
@@ -53,6 +54,11 @@ import {
   Architect,
   Deployer,
   Trainer,
+  Sandpit,
+  PrivateModelManager,
+  MvpPlanner,
+  MvpDeployer,
+  FullSolutionPlanner,
   type ModelInvoker,
   type SubagentConfig,
   type SubagentResult,
@@ -63,6 +69,43 @@ import {
   type DeployProgressEvent,
   type TrainProgressEvent,
 } from './planner/index.js';
+import { createSandpitTools } from './tools/sandpit-tools.js';
+import { createModelTools } from './tools/model-tools.js';
+import type { ToolDefinition } from '@capix/agent-runtime';
+
+/** Convert an agent-runtime ToolDefinition to the OpenCode plugin tool format. */
+function adaptRuntimeTool(def: ToolDefinition) {
+  return tool({
+    description: def.description,
+    args: {
+      // Runtime tools accept arbitrary args; the plugin validates loosely.
+      input: z.string().optional().describe('Tool input as JSON string'),
+    },
+    async execute(args, context) {
+      const parsed = args.input ? JSON.parse(args.input) : {};
+      const result = await def.execute(parsed, {
+        sessionId: context.sessionID ?? 'unknown',
+        turnId: `turn_${Date.now()}`,
+        workspaceRoot: context.directory ?? process.cwd(),
+        signal: context.abort,
+      });
+      return {
+        title: def.name,
+        output: result.output,
+        metadata: result.metadata,
+      };
+    },
+  });
+}
+
+/** Convert an array of agent-runtime ToolDefinitions to OpenCode plugin tools. */
+function adaptRuntimeTools(defs: ToolDefinition[]): Record<string, ReturnType<typeof tool>> {
+  const result: Record<string, ReturnType<typeof tool>> = {};
+  for (const def of defs) {
+    result[def.name] = adaptRuntimeTool(def);
+  }
+  return result;
+}
 import * as routing from './routing-client.js';
 import { sessionStatus } from './tui/index.js';
 import { McpSupervisor } from './mcp-supervisor.js';
@@ -794,6 +837,15 @@ export const plugin: Plugin = async (
   const deployer = new Deployer(architect);
   // Train mode: fine-tune a base model on a dataset, register the result.
   const trainer = new Trainer();
+  // Sandpit: isolated refactor/review/test environment.
+  const sandpit = new Sandpit();
+  // Private models: deploy and fine-tune owner-only models.
+  const privateModelManager = new PrivateModelManager();
+  // MVP: idea → deployed product.
+  const mvpPlanner = new MvpPlanner(modelInvoker);
+  const mvpDeployer = new MvpDeployer(mvpPlanner);
+  // Full solution: MVP → production architecture.
+  const fullSolutionPlanner = new FullSolutionPlanner(modelInvoker);
   // Resolve the engine binary path from (1) env var set by launcher, (2) relative
   // to the plugin's own directory, (3) standard install locations.
   const enginePath =
@@ -1197,6 +1249,124 @@ export const plugin: Plugin = async (
     },
   });
 
+  const capixMvpArchitect = tool({
+    description:
+      'MVP architect: turn a product idea into a deployable MVP plan — ' +
+      'Next.js frontend, auth, Postgres database, and deployment topology. ' +
+      'Returns the plan for review; nothing is provisioned until approved.',
+    args: {
+      intent: z.string().describe('The product idea in natural language.'),
+      approve: z.boolean().optional().describe('Approve the resulting plan for deployment.'),
+    },
+    async execute(args, context) {
+      sessionStatus.setSession(context.sessionID ?? null);
+      sessionStatus.setAgentState('planning');
+      try {
+        const mvp = await mvpPlanner.design(args.intent);
+        const plan = mvp.architecture;
+        if (args.approve) {
+          mvpPlanner.approve(plan.id);
+        }
+        sessionStatus.setAgentState(plan.status === 'approved' ? 'idle' : 'awaiting-approval');
+        return {
+          title: `capix_mvp_architect: ${plan.summary.slice(0, 60)}`,
+          output: renderArchitecturePlan(plan),
+          metadata: {
+            planId: plan.id,
+            status: plan.status,
+            workloads: plan.workloads.length,
+            costEstimate: plan.costEstimate?.total ?? null,
+          },
+        };
+      } catch (err) {
+        sessionStatus.setAgentState('idle');
+        throw err;
+      }
+    },
+  });
+
+  const capixMvpDeploy = tool({
+    description:
+      'MVP deploy: deploy an approved MVP plan — provisions the website, ' +
+      'auth service, and database. Returns the product URL, admin access, ' +
+      'and cost tracking.',
+    args: {
+      planId: z.string().optional().describe('MVP plan id to deploy (default: current approved plan).'),
+    },
+    async execute(args, context) {
+      const plan = mvpPlanner.getCurrentPlan();
+      if (!plan || (args.planId && plan.architecture.id !== args.planId)) {
+        return {
+          title: 'capix_mvp_deploy',
+          output: 'No matching MVP plan. Run capix_mvp_architect first and approve the plan.',
+        };
+      }
+      sessionStatus.setSession(context.sessionID ?? null);
+      sessionStatus.setAgentState('deploying');
+      const progress: string[] = [];
+      try {
+        const result = await mvpDeployer.deploy(plan, {
+          onEvent: (event) => progress.push(renderDeployEvent(event)),
+        });
+        sessionStatus.setAgentState('idle');
+        const lines = [`mvp deploy: ${result.status}`, ...progress];
+        if (result.url) lines.push(`url: ${result.url}`);
+        if (result.adminAccess) lines.push(`admin: ${result.adminAccess.consolePath}`);
+        if (result.spendToDate) lines.push(`spend: ${routing.formatMoney(result.spendToDate)}`);
+        return {
+          title: `capix_mvp_deploy: ${result.status}`,
+          output: lines.join('\n'),
+          metadata: {
+            planId: result.planId,
+            status: result.status,
+            url: result.url ?? null,
+            adminAccess: result.adminAccess ?? null,
+          },
+        };
+      } catch (err) {
+        sessionStatus.setAgentState('idle');
+        throw err;
+      }
+    },
+  });
+
+  const capixFullSolution = tool({
+    description:
+      'Full solution architect: analyze an existing MVP directory and produce ' +
+      'a production architecture — microservices, caching, CDN, monitoring, ' +
+      'and scaling topology.',
+    args: {
+      mvpPath: z.string().describe('Path to the existing MVP directory.'),
+      scaleIntent: z.string().describe('How to scale it (e.g. "to production", "handle 10k users").'),
+      approve: z.boolean().optional().describe('Approve the resulting plan for deployment.'),
+    },
+    async execute(args, context) {
+      sessionStatus.setSession(context.sessionID ?? null);
+      sessionStatus.setAgentState('planning');
+      try {
+        const result = await fullSolutionPlanner.design(args.scaleIntent, { fromMvp: args.mvpPath });
+        const plan = result.architecture;
+        if (args.approve) {
+          fullSolutionPlanner.approve(plan.id);
+        }
+        sessionStatus.setAgentState(plan.status === 'approved' ? 'idle' : 'awaiting-approval');
+        return {
+          title: `capix_full_solution: ${plan.summary.slice(0, 60)}`,
+          output: renderArchitecturePlan(plan),
+          metadata: {
+            planId: plan.id,
+            status: plan.status,
+            workloads: plan.workloads.length,
+            costEstimate: plan.costEstimate?.total ?? null,
+          },
+        };
+      } catch (err) {
+        sessionStatus.setAgentState('idle');
+        throw err;
+      }
+    },
+  });
+
   // ── MCP Supervisor ─────────────────────────────────────────────────────
   // Feed real MCP health into the session status store so the TUI shows
   // "mcp connected (N tools)" instead of a stale disconnected state.
@@ -1264,6 +1434,11 @@ export const plugin: Plugin = async (
       capix_architect: capixArchitect,
       capix_deploy: capixDeploy,
       capix_train: capixTrain,
+      ...adaptRuntimeTools(createSandpitTools(sandpit)),
+      ...adaptRuntimeTools(createModelTools(privateModelManager)),
+      capix_mvp_architect: capixMvpArchitect,
+      capix_mvp_deploy: capixMvpDeploy,
+      capix_full_solution: capixFullSolution,
     },
 
     // ── Auth: browser code+PKCE bridged to the credential broker ─────────

@@ -679,6 +679,22 @@ export async function getDeployment(id: string, opts: RequestOpts = {}): Promise
   return result;
 }
 
+/**
+ * Destroy a deployment (DELETE /deployments/{id}). Returns the deployment in
+ * its tearing-down state; poll `getDeployment` for the final `destroyed`
+ * state and the final `spendToDate`.
+ */
+export async function destroyDeployment(id: string, opts: RequestOpts = {}): Promise<Deployment> {
+  const result = await request<Deployment>(
+    'DELETE',
+    `/deployments/${encodeURIComponent(id)}`,
+    undefined,
+    opts
+  );
+  if (!result) throw new RoutingHttpError(0, 'CAPIX_INTERNAL', 'empty deployment response');
+  return result;
+}
+
 export async function listDeployments(
   input: { cursor?: string; limit?: number } = {},
   opts: RequestOpts = {}

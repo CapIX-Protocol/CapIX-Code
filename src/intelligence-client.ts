@@ -323,7 +323,7 @@ export interface ListCheckpointsOutput {
 }
 
 export type ReceiptKind =
-  'inference' | 'infra-provision' | 'infra-destroy' | 'verification' | 'review' | 'model-training';
+  'inference' | 'infra-provision' | 'infra-destroy' | 'verification' | 'review' | 'model-training' | 'sandpit-run';
 
 export interface WorkReceipt {
   id: string;
@@ -395,6 +395,9 @@ export type HookEventType =
   | 'deploy.destroy'
   | 'train.submit'
   | 'train.register'
+  | 'sandpit.create'
+  | 'sandpit.job'
+  | 'sandpit.destroy'
   | 'compact.run';
 
 export interface RecordHookEventInput {

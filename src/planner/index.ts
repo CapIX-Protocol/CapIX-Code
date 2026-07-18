@@ -5,3 +5,7 @@ export * from './specialists.js';
 export * from './architect.js';
 export * from './deploy.js';
 export * from './train.js';
+export * from './mvp.js';
+export * from './full-solution.js';
+export * from './sandpit.js';
+export * from './private-llm.js';
