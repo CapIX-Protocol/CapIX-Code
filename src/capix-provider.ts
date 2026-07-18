@@ -403,6 +403,7 @@ export async function* stream(
     });
     if (!res.ok && res.status === 401 && !refreshed) {
       refreshed = true;
+      process.env.CAPIX_API_KEY = '';
       await broker().refreshToken();
       const fresh = await broker().getAccessToken({ projectId: options.projectId });
       return doRequest(fresh.token);
