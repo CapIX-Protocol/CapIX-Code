@@ -3,13 +3,21 @@
   "version": "2.2.5",
   "private": true,
   "type": "module",
+  "description": "Capix agent runtime — modes, specialists, permission-checked tools, durable SQLite sessions, plans/diffs/receipts, ACP JSON-RPC transport",
+  "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./runtime": "./src/runtime.ts"
+    "./runtime": "./src/runtime.ts",
+    "./transport": "./src/transport.ts"
   },
-  "dependencies": {},
+  "scripts": {
+    "compile": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0"
+  },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "typescript": "^5.7.0"
-  },
-  "main": "src/index.ts"
+  }
 }

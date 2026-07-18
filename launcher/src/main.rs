@@ -119,6 +119,18 @@ enum Command {
         #[command(subcommand)]
         subcommand: DeployCommand,
     },
+    /// Train a specialized model (POST /api/v1/models/train)
+    Train {
+        /// Base model id to fine-tune
+        #[arg(long)]
+        model: String,
+        /// Path to the dataset file (.jsonl, .parquet, .csv, or text)
+        #[arg(long)]
+        dataset: String,
+        /// Specialization prompt describing the behavior to train for
+        #[arg(long)]
+        specialize: String,
+    },
     /// Destroy a deployment or GPU asset
     Destroy {
         /// Deployment or saga ID to destroy
@@ -722,6 +734,63 @@ fn api_get(path: &str) -> Result<ExitCode, String> {
         }
         let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
         serde_json::to_string_pretty(&json).map_err(|e| e.to_string())
+    })?;
+    println!("{body}");
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Submit a fine-tuning job. The dataset is referenced by `file://` URI with a
+/// SHA-256 fingerprint; monitoring and catalog registration are handled by the
+/// Capix Code plugin (`capix_train` tool), not the launcher.
+fn train(model: &str, dataset: &str, specialize: &str) -> Result<ExitCode, String> {
+    let dataset_path = std::fs::canonicalize(dataset)
+        .map_err(|e| format!("cannot resolve dataset path {dataset}: {e}"))?;
+    let bytes = std::fs::read(&dataset_path)
+        .map_err(|e| format!("cannot read dataset {}: {e}", dataset_path.display()))?;
+    let sha256 = format!("{:x}", Sha256::digest(&bytes));
+    let lower = dataset_path.to_string_lossy().to_lowercase();
+    let format = if lower.ends_with(".jsonl") {
+        "jsonl"
+    } else if lower.ends_with(".parquet") {
+        "parquet"
+    } else if lower.ends_with(".csv") {
+        "csv"
+    } else {
+        "text"
+    };
+    let token = access_token()?;
+    let idempotency_key = format!("capix-code-train-{}", uuid());
+    let body = runtime()?.block_on(async {
+        let response = http_client()?
+            .post(format!("{WEB_ORIGIN}/api/v1/models/train"))
+            .bearer_auth(token)
+            .header("idempotency-key", &idempotency_key)
+            .header("content-type", "application/json")
+            .body(
+                serde_json::to_string(&serde_json::json!({
+                    "baseModel": model,
+                    "dataset": {
+                        "uri": format!("file://{}", dataset_path.display()),
+                        "format": format,
+                        "sha256": sha256,
+                        "bytes": bytes.len().to_string(),
+                    },
+                    "specializationPrompt": specialize,
+                }))
+                .map_err(|e| e.to_string())?,
+            )
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = response.status();
+        let text = response.text().await.map_err(|e| e.to_string())?;
+        if !status.is_success() {
+            return Err(format!("Capix train returned {status}: {text}"));
+        }
+        serde_json::to_string_pretty(
+            &serde_json::from_str::<serde_json::Value>(&text).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())
     })?;
     println!("{body}");
     Ok(ExitCode::SUCCESS)
@@ -2146,6 +2215,11 @@ fn main() -> ExitCode {
         Command::Deploy { subcommand } => match subcommand {
             DeployCommand::Llm { model, quote } => deploy_llm(&model, &quote),
         },
+        Command::Train {
+            model,
+            dataset,
+            specialize,
+        } => train(&model, &dataset, &specialize),
         Command::Destroy { id } => destroy(&id),
     };
     match result {

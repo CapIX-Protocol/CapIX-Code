@@ -193,6 +193,10 @@
       "description": "Deploy infrastructure via Capix MCP \u2014 quote, approve, provision",
       "template": "file://commands/deploy.md"
     },
+    "train": {
+      "description": "Train a specialized model via Capix \u2014 submit dataset, monitor, register",
+      "template": "file://commands/train.md"
+    },
     "cleanup": {
       "description": "Clean up task resources \u2014 destroy infra, reconcile, capture billing",
       "template": "file://commands/cleanup.md"

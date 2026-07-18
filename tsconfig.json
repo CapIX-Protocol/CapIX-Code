@@ -14,9 +14,19 @@
     "baseUrl": ".",
     "paths": {
       "@capix/contracts": ["types/capix-contracts.d.ts"],
+      "@capix/auth-broker": ["types/capix-auth-broker.d.ts"],
+      "@capix/agent-runtime": ["packages/agent-runtime/src/index.ts"],
+      "@capix/agent-runtime/*": ["packages/agent-runtime/src/*"],
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*", "brand/**/*", "types/**/*", "tests/**/*", "packages/runtime-provider/**/*"],
+  "include": [
+    "src/**/*",
+    "brand/**/*",
+    "types/**/*",
+    "tests/**/*",
+    "packages/runtime-provider/**/*",
+    "packages/agent-runtime/**/*"
+  ],
   "exclude": ["node_modules", "dist"]
 }

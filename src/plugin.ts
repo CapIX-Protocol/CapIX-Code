@@ -50,15 +50,32 @@ import {
   Planner,
   SubagentManager,
   ContextCompactor,
+  Architect,
+  Deployer,
+  Trainer,
   type ModelInvoker,
   type SubagentConfig,
   type SubagentResult,
   type EngineCommandResolver,
   type PlanStep,
   type Plan,
+  type ArchitecturePlan,
+  type DeployProgressEvent,
+  type TrainProgressEvent,
 } from './planner/index.js';
-import { SPECIALIST_AGENTS, getSpecialist } from './planner/specialists.js';
+import * as routing from './routing-client.js';
+import { sessionStatus } from './tui/index.js';
+import { McpSupervisor } from './mcp-supervisor.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
+import {
+  CapixAgentRuntime,
+  checkModePermission,
+  isAgentMode,
+  type AgentMode,
+  type ModelChunk as RuntimeModelChunk,
+  type ModelInvoker as RuntimeModelInvoker,
+  type ToolRiskClass,
+} from '@capix/agent-runtime';
 
 export const CAPIX_PLUGIN_VERSION = '2.2.5';
 export const CAPIX_ACP_VERSION = '1';
@@ -71,6 +88,8 @@ export interface CapixPluginOptions {
   workspaceRoot?: string;
   apiBaseUrl?: string;
   inferenceBaseUrl?: string;
+  /** Agent mode (ask/plan/build/debug/review) enforced on tool execution. */
+  mode?: AgentMode;
 }
 
 type ToolBefore = NonNullable<Hooks['tool.execute.before']>;
@@ -89,6 +108,8 @@ type ChatMessageOutput = Parameters<ChatMessage>[1];
 
 let brokerInstance: CredentialBroker | null = null;
 let sandboxInstance: WorkspaceSandbox | null = null;
+let runtimeInstance: CapixAgentRuntime | null = null;
+let mcpSupervisorInstance: McpSupervisor | null = null;
 let intelligenceWired = false;
 
 function getBroker(): CredentialBroker {
@@ -98,6 +119,49 @@ function getBroker(): CredentialBroker {
   return brokerInstance;
 }
 
+/**
+ * The shared MCP supervisor. One per process: repeated plugin loads must not
+ * spawn duplicate MCP servers. Its health feed is mirrored into the session
+ * status store, which is what the TUI status line renders
+ * ("mcp connected (N tools)" vs "mcp disconnected").
+ */
+function getMcpSupervisor(): McpSupervisor {
+  if (!mcpSupervisorInstance) {
+    mcpSupervisorInstance = new McpSupervisor();
+    mcpSupervisorInstance.onHealthChange((health) => sessionStatus.setMcpHealth(health));
+  }
+  return mcpSupervisorInstance;
+}
+
+/** Resolve the Capix MCP server entry point (same resolution as the config hook). */
+function mcpServerEntry(): string {
+  return (
+    process.env.CAPIX_MCP_PATH ||
+    join(process.env.HOME || '/home/user', '.capix-code', 'mcp', 'capix-mcp.js')
+  );
+}
+
+/**
+ * Start supervising the Capix MCP server so the customer-facing status line
+ * reflects real health. Never blocks plugin load: a missing entry point (dev
+ * checkouts, pre-install) leaves the status at its disconnected default, and
+ * spawn failures degrade inside the supervisor itself.
+ */
+function startMcpSupervision(): void {
+  const entry = mcpServerEntry();
+  if (!existsSync(entry)) return;
+  const supervisor = getMcpSupervisor();
+  if (supervisor.getHealth().state !== 'disconnected') return;
+  const env: Record<string, string> = {};
+  const apiKey = process.env.CAPIX_API_KEY?.trim();
+  if (apiKey) env.CAPIX_API_KEY = apiKey;
+  try {
+    supervisor.start(entry, env);
+  } catch (err) {
+    logger.warn('capix plugin: MCP supervisor start failed', { error: (err as Error)?.message });
+  }
+}
+
 function getSandbox(opts: CapixPluginOptions): WorkspaceSandbox {
   if (!sandboxInstance) {
     const profile = opts.sandbox ?? 'restricted';
@@ -105,6 +169,87 @@ function getSandbox(opts: CapixPluginOptions): WorkspaceSandbox {
     sandboxInstance = new WorkspaceSandbox(profile, root);
   }
   return sandboxInstance;
+}
+
+/**
+ * The shared agent runtime (`@capix/agent-runtime`). The plugin delegates
+ * specialist definitions, mode permission checks, plan persistence, and
+ * session bookkeeping to it instead of keeping its own in-memory stub.
+ * Constructed lazily so plugin load never touches the filesystem; tests can
+ * point `CAPIX_AGENT_RUNTIME_DB` at `:memory:`.
+ */
+function getAgentRuntime(meta: CapixClientMeta, workspaceRoot: string): CapixAgentRuntime {
+  if (!runtimeInstance) {
+    runtimeInstance = new CapixAgentRuntime({
+      dbPath: process.env.CAPIX_AGENT_RUNTIME_DB,
+      workspaceRoot,
+      modelInvoker: createRuntimeModelInvoker(meta),
+    });
+  }
+  return runtimeInstance;
+}
+
+/** The plugin's active agent mode: option, then env, then 'build'. */
+function getAgentMode(opts: CapixPluginOptions): AgentMode {
+  const raw = opts.mode ?? process.env.CAPIX_AGENT_MODE ?? 'build';
+  return isAgentMode(raw) ? raw : 'build';
+}
+
+/**
+ * Map an engine tool name to a runtime risk class so `checkModePermission`
+ * can enforce the active mode in `tool.execute.before`.
+ */
+function engineToolRiskClass(toolName: string): ToolRiskClass {
+  switch (toolName) {
+    case 'bash':
+    case 'task':
+      return 'execute';
+    case 'edit':
+    case 'write':
+    case 'patch':
+      return 'write';
+    case 'webfetch':
+    case 'websearch':
+      return 'network';
+    default:
+      return 'read';
+  }
+}
+
+/**
+ * Bridge the broker-backed capix stream into the runtime's ModelInvoker
+ * shape, so runtime-driven turns (e.g. specialist child sessions over ACP)
+ * use the same server-authoritative route as the engine.
+ */
+function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelInvoker {
+  return async function* (req) {
+    const stream = capixStream(
+      {
+        model: req.modelId,
+        messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+      },
+      { meta, signal: req.signal }
+    );
+    for await (const chunk of stream) {
+      if (chunk.type === 'text') {
+        yield { type: 'text', delta: chunk.delta } as RuntimeModelChunk;
+      } else if (chunk.type === 'reasoning') {
+        yield { type: 'reasoning', delta: chunk.delta } as RuntimeModelChunk;
+      } else if (chunk.type === 'usage') {
+        // Mirror real token/cost usage into the session status store so the
+        // TUI shows actual usage after inference instead of zeros.
+        sessionStatus.recordUsage(chunk.input, chunk.output, chunk.cost);
+        yield {
+          type: 'usage',
+          inputUnits: chunk.input,
+          outputUnits: chunk.output,
+          costMinor: chunk.cost?.amount ?? '0',
+        } as RuntimeModelChunk;
+      } else if (chunk.type === 'error') {
+        throw new Error(chunk.message || `capix inference error: ${chunk.capixCode}`);
+      }
+    }
+  };
 }
 
 /**
@@ -302,6 +447,102 @@ function renderResult(result: SubagentResult): string {
   return lines.join('\n');
 }
 
+/** Render an `ArchitecturePlan` as a human-readable block for tool output. */
+function renderArchitecturePlan(plan: ArchitecturePlan): string {
+  const lines: string[] = [
+    `architecture: ${plan.summary}`,
+    `region: ${plan.region} | trust tier: ${plan.trustTier} | status: ${plan.status}`,
+  ];
+  if (plan.services.length) {
+    lines.push('services:');
+    for (const s of plan.services)
+      lines.push(`  - ${s.name}: ${s.purpose} (runs on ${s.workload})`);
+  }
+  if (plan.dataStores.length) {
+    lines.push('data stores:');
+    for (const d of plan.dataStores) lines.push(`  - ${d.name} (${d.engine}): ${d.purpose}`);
+  }
+  if (plan.models.length) {
+    lines.push('models:');
+    for (const m of plan.models) lines.push(`  - ${m.name} [${m.modelRef}]: ${m.purpose}`);
+  }
+  lines.push('workloads:');
+  for (const w of plan.workloads) {
+    const best = w.quote ? routing.bestCandidate(w.quote) : null;
+    const price = best
+      ? `${routing.formatMoney(best.pricePerUnit)} / ${best.meteringUnit}`
+      : w.quoteError
+        ? `quote failed: ${w.quoteError}`
+        : 'no candidate';
+    lines.push(`  - ${w.name} (${w.kind}): ${w.purpose} — ${price}`);
+  }
+  if (plan.costEstimate?.total) {
+    lines.push(
+      `cost estimate: ${routing.formatMoney(plan.costEstimate.total)} per metering unit ` +
+        `(quotes valid until ${plan.costEstimate.quotesExpireAt ?? 'unknown'})`
+    );
+  }
+  if (plan.assumptions.length) lines.push(`assumptions: ${plan.assumptions.join('; ')}`);
+  return lines.join('\n');
+}
+
+/** Render a deploy progress event as one human-readable line. */
+function renderDeployEvent(event: DeployProgressEvent): string {
+  switch (event.type) {
+    case 'quoting':
+      return `[quoting] ${event.workload}: requesting live quote from the smart router`;
+    case 'quoted': {
+      const c = event.candidate;
+      const price = c
+        ? `${routing.formatMoney(c.pricePerUnit)} / ${c.meteringUnit}`
+        : 'no candidate';
+      return `[quoted] ${event.workload}: ${price} in ${c?.region ?? 'unknown'} (${c?.trustTier ?? 'unknown'} tier), valid until ${event.expiresAt}`;
+    }
+    case 'committing':
+      return `[committing] ${event.workload}: locking placement`;
+    case 'committed':
+      return `[committed] ${event.workload}: deployment ${event.deploymentId}`;
+    case 'state':
+      return `[state] ${event.workload}: ${event.state}${event.summary ? ` — ${event.summary}` : ''}`;
+    case 'healthy': {
+      const eps = event.endpoints.map((e) => e.url).join(', ') || 'no endpoints yet';
+      return `[healthy] ${event.workload}: running at ${eps} (spend to date ${routing.formatMoney(event.spendToDate)})`;
+    }
+    case 'failed':
+      return `[failed] ${event.workload}: ${event.error}`;
+    case 'done':
+      return `[done] ${event.succeeded} running, ${event.failed} failed`;
+  }
+}
+
+/** Render a training progress event as one human-readable line. */
+function renderTrainEvent(event: TrainProgressEvent): string {
+  switch (event.type) {
+    case 'validating':
+      return '[validating] hashing dataset and checking covenant';
+    case 'submitting':
+      return `[submitting] ${event.baseModel}: creating training job…`;
+    case 'submitted':
+      return `[submitted] job ${event.jobId}`;
+    case 'state': {
+      const epoch =
+        event.currentEpoch !== undefined
+          ? `epoch ${event.currentEpoch}/${event.totalEpochs ?? '?'} · `
+          : '';
+      const percent = event.percent !== undefined ? ` · ${event.percent}%` : '';
+      return `[${event.state}] ${epoch}${event.jobId}${percent}`;
+    }
+    case 'checkpoint':
+      return `[training] epoch ${event.epoch} · checkpoint ${event.checkpointId}`;
+    case 'registered':
+      return `[ready] model registered: ${event.modelId}`;
+    case 'failed':
+      return `[failed]${event.jobId ? ` job ${event.jobId}:` : ''} ${event.message}`;
+    case 'done':
+      return `[done]${event.modelId ? ` model ${event.modelId}` : ''}`;
+  }
+}
+
 /** Best-effort extraction of user-authored text from a chat message's parts. */
 function extractUserText(parts: unknown): string {
   if (!Array.isArray(parts)) return '';
@@ -438,6 +679,7 @@ export const plugin: Plugin = async (
 
   const broker = getBroker();
   const sandbox = getSandbox(opts);
+  const agentMode = getAgentMode(opts);
 
   // Register the broker accessor and inference base resolver so the provider
   // module talks ONLY to the broker, never to a stored token.
@@ -453,6 +695,20 @@ export const plugin: Plugin = async (
     clientVersion,
     pluginVersion: CAPIX_PLUGIN_VERSION,
   });
+
+  // Wire the routing-client (smart router quotes, deployment lifecycle,
+  // balance, managed model catalog) to the same broker and base URL.
+  routing.setBrokerAccessor(() => broker);
+  routing.setRoutingBaseResolver(() => opts.apiBaseUrl ?? routing.CAPIX_ROUTING_BASE);
+  routing.setClientMetaAccessor(() => ({
+    client: 'capix-code',
+    clientVersion,
+    pluginVersion: CAPIX_PLUGIN_VERSION,
+    releaseId,
+  }));
+
+  // Feed the shared TUI session status store with what is known at load.
+  sessionStatus.setMode(agentMode);
 
   // ── Codebase indexer + retriever (agent brain: local codebase context) ──
   // The indexer parses the project into a symbol + import graph (regex-based,
@@ -531,6 +787,13 @@ export const plugin: Plugin = async (
   // exposes getOrientation() and findRelevantFiles() with the same shape).
   const modelInvoker = createModelInvoker(meta);
   const planner = new Planner(contextRetriever, modelInvoker, indexerRoot);
+  // Architect mode: intent → system architecture with live router quotes.
+  // Deploy mode: approved architecture → workloads dispatched via the smart
+  // router, with health monitoring and streamed progress.
+  const architect = new Architect(modelInvoker);
+  const deployer = new Deployer(architect);
+  // Train mode: fine-tune a base model on a dataset, register the result.
+  const trainer = new Trainer();
   // Resolve the engine binary path from (1) env var set by launcher, (2) relative
   // to the plugin's own directory, (3) standard install locations.
   const enginePath =
@@ -648,8 +911,33 @@ export const plugin: Plugin = async (
     args: {
       request: z.string().describe('The user request to decompose into a plan.'),
     },
-    async execute(args) {
+    async execute(args, context) {
       const plan = await planner.plan(args.request);
+      // Persist the plan durably in the agent runtime so it survives restarts
+      // and is visible to other clients (IDE, ACP) — best-effort, never
+      // blocks plan rendering.
+      try {
+        const rt = getAgentRuntime(meta, indexerRoot);
+        const sessionId = context.sessionID ?? `plugin-${releaseId}`;
+        try {
+          await rt.createSession({ sessionId, mode: agentMode, workspaceRoot: indexerRoot });
+        } catch {
+          // Session already adopted — fine.
+        }
+        await rt.createPlan(sessionId, {
+          goal: plan.goal,
+          definitionOfDone: plan.definitionOfDone,
+          steps: plan.steps.map((s) => ({
+            description: s.description,
+            files: [...s.filesToRead, ...s.filesToEdit, ...s.filesToCreate],
+            tests: s.testsToRun,
+          })),
+        });
+      } catch (err) {
+        logger.warn('capix plugin: plan persistence failed', {
+          error: (err as Error)?.message,
+        });
+      }
       return {
         title: `capix_plan: ${plan.goal}`,
         output: renderPlan(plan),
@@ -692,10 +980,12 @@ export const plugin: Plugin = async (
         estimatedTurns: args.maxTurns ?? 8,
         status: 'in-progress',
       };
-      // Use specialist agent if specified, otherwise default to implement
+      // Use specialist agent if specified, otherwise default to implement.
+      // Specialist definitions come from the shared agent runtime.
+      const rt = getAgentRuntime(meta, indexerRoot);
       const specialistRole =
         ((args as Record<string, unknown>).specialist as string) || 'implement';
-      const specialist = getSpecialist(specialistRole) ?? SPECIALIST_AGENTS.implement;
+      const specialist = rt.getSpecialist(specialistRole) ?? rt.getSpecialist('implement')!;
 
       const config: SubagentConfig = {
         role: specialist.role,
@@ -711,6 +1001,26 @@ export const plugin: Plugin = async (
         approvalRules: specialist.fileScope === 'read-only' ? 'auto' : 'ask-parent',
       };
       const result = await subagentManager.spawn(config);
+      // Record the delegation as a specialist child session in the runtime so
+      // the agents panel / IDE can list lineage (best-effort).
+      try {
+        if (context.sessionID) {
+          try {
+            await rt.createSession({
+              sessionId: context.sessionID,
+              mode: agentMode,
+              workspaceRoot: indexerRoot,
+            });
+          } catch {
+            // Session already adopted — fine.
+          }
+          await rt.createChildSession(context.sessionID, specialist.role, planStep.description);
+        }
+      } catch (err) {
+        logger.warn('capix plugin: child session bookkeeping failed', {
+          error: (err as Error)?.message,
+        });
+      }
       return {
         title: `capix_delegate: ${args.stepDescription}`,
         output: renderResult(result),
@@ -725,7 +1035,172 @@ export const plugin: Plugin = async (
     },
   });
 
+  const capixArchitect = tool({
+    description:
+      'Architect mode: turn a natural-language intent into a deployable ' +
+      'system architecture — services, data stores, models, infrastructure, ' +
+      'trust tier, region — with live cost quotes from the smart router. ' +
+      'The plan is returned for review; nothing is provisioned until it is ' +
+      'approved and deployed with capix_deploy.',
+    args: {
+      intent: z.string().describe('What the user wants to build or run, in natural language.'),
+      approve: z
+        .boolean()
+        .optional()
+        .describe('Approve the resulting plan for deployment (default false).'),
+    },
+    async execute(args, context) {
+      sessionStatus.setSession(context.sessionID ?? null);
+      sessionStatus.setAgentState('planning');
+      try {
+        const plan = await architect.design(args.intent);
+        if (args.approve) {
+          architect.approve(plan.id);
+        }
+        sessionStatus.setAgentState(plan.status === 'approved' ? 'idle' : 'awaiting-approval');
+        return {
+          title: `capix_architect: ${plan.summary.slice(0, 60)}`,
+          output: renderArchitecturePlan(plan),
+          metadata: {
+            planId: plan.id,
+            status: plan.status,
+            workloads: plan.workloads.length,
+            costEstimate: plan.costEstimate?.total ?? null,
+          },
+        };
+      } catch (err) {
+        sessionStatus.setAgentState('idle');
+        throw err;
+      }
+    },
+  });
+
+  const capixDeploy = tool({
+    description:
+      'Deploy mode: convert the approved architecture plan into workloads ' +
+      'and dispatch them through the smart router. Monitors each deployment ' +
+      'until it is healthy and streams progress. Requires an approved plan ' +
+      'from capix_architect; spend is always confirmed by that approval.',
+    args: {
+      planId: z
+        .string()
+        .optional()
+        .describe('Architecture plan id to deploy (default: the current approved plan).'),
+    },
+    async execute(args, context) {
+      const plan = architect.getCurrentPlan();
+      if (!plan || (args.planId && plan.id !== args.planId)) {
+        return {
+          title: 'capix_deploy',
+          output: 'No matching architecture plan. Run capix_architect first and approve the plan.',
+        };
+      }
+
+      sessionStatus.setSession(context.sessionID ?? null);
+      sessionStatus.setAgentState('deploying');
+      const progress: string[] = [];
+      try {
+        const result = await deployer.deploy(plan, {
+          onEvent: (event) => {
+            progress.push(renderDeployEvent(event));
+            if (event.type === 'healthy') {
+              sessionStatus.recordSpend(
+                event.spendToDate.amountMinor,
+                event.spendToDate.currency,
+                event.spendToDate.scale
+              );
+            }
+          },
+        });
+        sessionStatus.setAgentState('idle');
+        const lines = [`deploy plan ${result.planId}: ${result.status}`, ...progress, 'workloads:'];
+        for (const w of result.workloads) {
+          lines.push(
+            `  - ${w.name}: ${w.state}${w.deploymentId ? ` (${w.deploymentId})` : ''}${w.error ? ` — ${w.error}` : ''}`
+          );
+        }
+        return {
+          title: `capix_deploy: ${result.status}`,
+          output: lines.join('\n'),
+          metadata: {
+            planId: result.planId,
+            status: result.status,
+            workloads: result.workloads,
+          },
+        };
+      } catch (err) {
+        sessionStatus.setAgentState('idle');
+        throw err;
+      }
+    },
+  });
+
+  const capixTrain = tool({
+    description:
+      'Train mode: fine-tune a base model on a dataset via Capix — submit, ' +
+      'monitor progress, register the model in your catalog. Streams ' +
+      'checkpoints and epoch progress until the job reaches a terminal state.',
+    args: {
+      model: z.string().describe('Base model id to fine-tune (e.g. llama-3.1-8b-instruct).'),
+      dataset: z.string().describe('Path to the dataset file (.jsonl, .parquet, .csv, or text).'),
+      specialize: z
+        .string()
+        .describe('Specialization prompt describing the behavior to train for.'),
+      epochs: z.number().optional().describe('Training epochs (server default otherwise).'),
+      learningRate: z.number().optional().describe('Learning rate (server default otherwise).'),
+      loraRank: z.number().optional().describe('LoRA rank (server default otherwise).'),
+    },
+    async execute(args, context) {
+      sessionStatus.setSession(context.sessionID ?? null);
+      sessionStatus.setAgentState('training');
+      const progress: string[] = [];
+      try {
+        const hyperparameters: Record<string, number> = {};
+        if (args.epochs !== undefined) hyperparameters.epochs = args.epochs;
+        if (args.learningRate !== undefined) hyperparameters.learningRate = args.learningRate;
+        if (args.loraRank !== undefined) hyperparameters.loraRank = args.loraRank;
+        const result = await trainer.train({
+          baseModel: args.model,
+          datasetPath: args.dataset,
+          specialize: args.specialize,
+          ...(Object.keys(hyperparameters).length > 0 ? { hyperparameters } : {}),
+          onEvent: (event) => progress.push(renderTrainEvent(event)),
+        });
+        sessionStatus.setAgentState('idle');
+        if (result.costMinor !== undefined && result.asset && result.scale !== undefined) {
+          sessionStatus.recordSpend(result.costMinor, result.asset, result.scale);
+        }
+        const lines = [`train ${args.model}: ${result.status}`, ...progress];
+        if (result.modelId) {
+          lines.push(`registered model: ${result.modelId}`);
+        }
+        if (result.costMinor !== undefined && result.asset && result.scale !== undefined) {
+          lines.push(
+            `cost: ${routing.formatMoney({ amountMinor: result.costMinor, currency: result.asset, scale: result.scale })}`
+          );
+        }
+        if (result.error) lines.push(`error: ${result.error}`);
+        return {
+          title: `capix_train: ${result.status}`,
+          output: lines.join('\n'),
+          metadata: {
+            jobId: result.jobId ?? null,
+            status: result.status,
+            modelId: result.modelId ?? null,
+            error: result.error ?? null,
+          },
+        };
+      } catch (err) {
+        sessionStatus.setAgentState('idle');
+        throw err;
+      }
+    },
+  });
+
   // ── MCP Supervisor ─────────────────────────────────────────────────────
+  // Feed real MCP health into the session status store so the TUI shows
+  // "mcp connected (N tools)" instead of a stale disconnected state.
+  startMcpSupervision();
 
   const capixHook = createCapixProviderHook();
 
@@ -769,17 +1244,7 @@ export const plugin: Plugin = async (
           }
           servers.capix = {
             type: 'local',
-            command: [
-              process.env.CAPIX_MCP_PATH ||
-                /* eslint-disable @typescript-eslint/no-require-imports */ require('node:path').join(
-                  process.env.HOME || '/home/user',
-                  '.capix-code',
-                  'mcp',
-                  'capix-mcp.js'
-                ),
-              'server',
-              '--stdio',
-            ],
+            command: [mcpServerEntry(), 'server', '--stdio'],
             enabled: true,
             ...(apiKey ? { environment: { CAPIX_API_KEY: apiKey } } : {}),
           };
@@ -796,6 +1261,9 @@ export const plugin: Plugin = async (
       capix_get_orientation: capixGetOrientation,
       capix_plan: capixPlan,
       capix_delegate: capixDelegate,
+      capix_architect: capixArchitect,
+      capix_deploy: capixDeploy,
+      capix_train: capixTrain,
     },
 
     // ── Auth: browser code+PKCE bridged to the credential broker ─────────
@@ -857,6 +1325,18 @@ export const plugin: Plugin = async (
 
     // ── Tool hardening: close broker capabilities + root through sandbox ─
     'tool.execute.before': async (toolInput: ToolExecuteInput, output: ToolExecuteOutput) => {
+      // Mode enforcement (ask/plan/build/debug/review) from the shared agent
+      // runtime: deny-decisions are hard failures; ask-decisions fall through
+      // to the sandbox / permission.ask flow below.
+      const modeCheck = checkModePermission(
+        agentMode,
+        toolInput.tool,
+        engineToolRiskClass(toolInput.tool)
+      );
+      if (modeCheck.decision === 'deny') {
+        throw new Error('capix: ' + modeCheck.reason);
+      }
+
       // For bash/task tools, validate the command against the sandbox.
       if (toolInput.tool === 'bash' || toolInput.tool === 'task') {
         if (output.args && typeof output.args === 'object') {
@@ -1082,6 +1562,10 @@ export const plugin: Plugin = async (
     // ── Dispose: revoke the session-only broker on plugin unload ────────
     dispose: async () => {
       codebaseIndexer.stopWatch();
+      if (runtimeInstance) {
+        runtimeInstance.close();
+        runtimeInstance = null;
+      }
       brokerInstance = null;
       sandboxInstance = null;
       intelligenceWired = false;
@@ -1116,3 +1600,7 @@ export default plugin;
 // Re-export the provider and supporting classes for direct consumers, tests,
 // and the bundled runtime adapter.
 export { capixProvider, CredentialBroker, WorkspaceSandbox };
+export * as routing from './routing-client.js';
+export { Architect, Deployer, Trainer } from './planner/index.js';
+export { sessionStatus, renderStatusLine } from './tui/index.js';
+export { getMcpSupervisor };

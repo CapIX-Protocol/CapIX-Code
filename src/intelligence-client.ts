@@ -323,7 +323,7 @@ export interface ListCheckpointsOutput {
 }
 
 export type ReceiptKind =
-  'inference' | 'infra-provision' | 'infra-destroy' | 'verification' | 'review';
+  'inference' | 'infra-provision' | 'infra-destroy' | 'verification' | 'review' | 'model-training';
 
 export interface WorkReceipt {
   id: string;
@@ -393,6 +393,8 @@ export type HookEventType =
   | 'deploy.quote'
   | 'deploy.provision'
   | 'deploy.destroy'
+  | 'train.submit'
+  | 'train.register'
   | 'compact.run';
 
 export interface RecordHookEventInput {

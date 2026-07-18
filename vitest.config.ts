@@ -4,6 +4,12 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   resolve: {
     alias: [
+      {
+        find: /^@capix\/agent-runtime$/,
+        replacement: fileURLToPath(
+          new URL('./packages/agent-runtime/src/index.ts', import.meta.url)
+        ),
+      },
       { find: /^@\//, replacement: fileURLToPath(new URL('./src/', import.meta.url)) },
     ],
   },

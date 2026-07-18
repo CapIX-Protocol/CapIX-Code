@@ -29,6 +29,24 @@ import { createServer, type Server } from 'node:net';
 import { logger } from './logger.js';
 import { brokerEndpoint } from './credential-constants.js';
 
+/** OAuth client id / credential-store namespace shared with @capix/auth-broker. */
+const SHARED_CLIENT_ID = 'capix-code';
+/** Credential-store slot used by the shared broker's dual-slot rotation. */
+const SHARED_SLOT_REFRESH_ACTIVE = 'refresh-token:active';
+
+/**
+ * Lazily-resolved handle to the shared `@capix/auth-broker` package (protocol
+ * workspace, packages/auth-broker). When importable it owns single-flight
+ * refresh, dual-slot refresh-token rotation with reuse detection, and OS
+ * keychain storage (Keychain / Credential Manager / Secret Service). The
+ * legacy in-file flow below remains the fallback when the package is not
+ * installed (e.g. minimal environments running the engine standalone).
+ */
+interface SharedBrokerHandle {
+  broker: import('@capix/auth-broker').AuthBroker;
+  store: import('@capix/auth-broker').CredentialStore;
+}
+
 export interface AccessToken {
   token: string;
   expiresAt: Date;
@@ -102,11 +120,60 @@ export class CredentialBroker {
   /** True when only session storage is available (plaintext fallback refused). */
   readonly sessionOnly: boolean;
 
+  /** Lazy shared-broker resolution (null when the package is not installed). */
+  private sharedBrokerPromise: Promise<SharedBrokerHandle | null> | null = null;
+  /** Emits the session-only warning at most once, after storage probes settle. */
+  private warnedSessionOnly = false;
+
   constructor() {
     this.sessionOnly = !this.secureStorageAvailable();
     if (this.sessionOnly) {
-      logger.warn('capix-broker: secure storage unavailable — session-only login', {});
+      // The shared broker may still provide OS-keychain storage; it resolves
+      // asynchronously, so the definitive warning is emitted on first use if
+      // no secure backend materialises.
+      void this.sharedBroker();
     }
+  }
+
+  /**
+   * Resolve the shared `@capix/auth-broker` AuthBroker bound to the default
+   * OS credential store. Cached; resolves to null when the package is not
+   * importable.
+   */
+  private sharedBroker(): Promise<SharedBrokerHandle | null> {
+    if (!this.sharedBrokerPromise) {
+      this.sharedBrokerPromise = (async (): Promise<SharedBrokerHandle | null> => {
+        try {
+          const mod = await import('@capix/auth-broker');
+          const store = mod.createDefaultCredentialStore(SHARED_CLIENT_ID);
+          const broker = new mod.AuthBroker(
+            {
+              baseUrl: 'https://www.capix.network',
+              clientId: SHARED_CLIENT_ID,
+              scope: 'capix:inference capix:compute offline_access',
+              audience: 'https://api.capix.network',
+            },
+            store
+          );
+          broker.onEvent((event) => {
+            if (event.type === 'token_reuse_detected') {
+              logger.warn('capix-broker: shared broker detected refresh-token reuse', {});
+            }
+          });
+          if (this.sessionOnly) {
+            logger.info('capix-broker: using OS keychain via @capix/auth-broker', {});
+          }
+          return { broker, store };
+        } catch {
+          if (this.sessionOnly && !this.warnedSessionOnly) {
+            this.warnedSessionOnly = true;
+            logger.warn('capix-broker: secure storage unavailable — session-only login', {});
+          }
+          return null;
+        }
+      })();
+    }
+    return this.sharedBrokerPromise;
   }
 
   /** Probe whether the OS secure storage backend is reachable. */
@@ -186,6 +253,36 @@ export class CredentialBroker {
         expiresAt: new Date(Date.now() + 14 * 60 * 1000),
       };
       return;
+    }
+
+    // Delegate to the shared @capix/auth-broker when importable: it owns the
+    // single-flight refresh grant, dual-slot rotation with reuse detection,
+    // and OS-keychain persistence with explicit audience/scope.
+    const shared = await this.sharedBroker();
+    if (shared) {
+      try {
+        const token = await shared.broker.getAccessToken();
+        const account = shared.broker.getAccount();
+        this.sessionAccess = {
+          token,
+          expiresAt: new Date(account?.expiresAt ?? Date.now() + 14 * 60 * 1000),
+        };
+        return;
+      } catch (err) {
+        const name = (err as Error).name;
+        if (name === 'TokenReuseError') {
+          await this.revokeDevice();
+          throw new TokenReuseError();
+        }
+        if (name !== 'NotAuthenticatedError') {
+          logger.warn('capix-broker: shared broker refresh failed; trying legacy grant', {
+            error: (err as Error).message,
+          });
+        }
+        // NotAuthenticatedError (or an unexpected failure) — fall through to
+        // the legacy grant, which may still hold a token under the legacy
+        // credential identity.
+      }
     }
 
     // Migrate legacy credentials on first use
@@ -433,45 +530,74 @@ export class CredentialBroker {
   // ── Secure storage primitives ───────────────────────────────────────────
 
   private async loadRefreshToken(): Promise<string | null> {
-    if (this.sessionOnly) return this.sessionRefresh;
-    const store = (
-      globalThis as { capixSecureStore?: { get: (s: string, a: string) => Promise<string | null> } }
-    ).capixSecureStore;
-    try {
-      return (await store!.get(SERVICE, ACCOUNT)) ?? this.sessionRefresh;
-    } catch (err) {
-      logger.warn('capix-broker: secure read failed', { error: (err as Error).message });
-      return this.sessionRefresh;
+    if (!this.sessionOnly) {
+      const store = (
+        globalThis as { capixSecureStore?: { get: (s: string, a: string) => Promise<string | null> } }
+      ).capixSecureStore;
+      try {
+        const value = await store!.get(SERVICE, ACCOUNT);
+        if (value) return value;
+      } catch (err) {
+        logger.warn('capix-broker: secure read failed', { error: (err as Error).message });
+      }
     }
+    // Shared broker's OS keychain (or its 0600 file fallback).
+    const shared = await this.sharedBroker();
+    if (shared) {
+      const value = await shared.store
+        .get(SHARED_CLIENT_ID, SHARED_SLOT_REFRESH_ACTIVE)
+        .catch(() => null);
+      if (value) return value;
+    }
+    return this.sessionRefresh;
   }
 
   private async storeRefreshToken(token: string): Promise<void> {
     this.sessionRefresh = token;
-    if (this.sessionOnly) return;
-    const store = (
-      globalThis as {
-        capixSecureStore?: { set: (s: string, a: string, v: string) => Promise<void> };
+    if (!this.sessionOnly) {
+      const store = (
+        globalThis as {
+          capixSecureStore?: { set: (s: string, a: string, v: string) => Promise<void> };
+        }
+      ).capixSecureStore;
+      try {
+        await store!.set(SERVICE, ACCOUNT, token);
+      } catch (err) {
+        logger.warn('capix-broker: secure write failed; session-only', {
+          error: (err as Error).message,
+        });
       }
-    ).capixSecureStore;
-    try {
-      await store!.set(SERVICE, ACCOUNT, token);
-    } catch (err) {
-      logger.warn('capix-broker: secure write failed; session-only', {
-        error: (err as Error).message,
-      });
+    }
+    const shared = await this.sharedBroker();
+    if (shared) {
+      await shared.store
+        .set(SHARED_CLIENT_ID, SHARED_SLOT_REFRESH_ACTIVE, token)
+        .catch((err) =>
+          logger.warn('capix-broker: shared keychain write failed', {
+            error: (err as Error).message,
+          })
+        );
     }
   }
 
   private async clearRefreshToken(): Promise<void> {
     this.sessionRefresh = null;
-    if (this.sessionOnly) return;
-    const store = (
-      globalThis as { capixSecureStore?: { delete: (s: string, a: string) => Promise<void> } }
-    ).capixSecureStore;
-    try {
-      await store!.delete(SERVICE, ACCOUNT);
-    } catch (err) {
-      logger.warn('capix-broker: clear failed — best effort', { error: (err as Error).message });
+    if (!this.sessionOnly) {
+      const store = (
+        globalThis as { capixSecureStore?: { delete: (s: string, a: string) => Promise<void> } }
+      ).capixSecureStore;
+      try {
+        await store!.delete(SERVICE, ACCOUNT);
+      } catch (err) {
+        logger.warn('capix-broker: clear failed — best effort', { error: (err as Error).message });
+      }
+    }
+    const shared = await this.sharedBroker();
+    if (shared) {
+      await Promise.all([
+        shared.store.delete(SHARED_CLIENT_ID, SHARED_SLOT_REFRESH_ACTIVE).catch(() => {}),
+        shared.store.delete(SHARED_CLIENT_ID, 'refresh-token:previous').catch(() => {}),
+      ]);
     }
   }
 

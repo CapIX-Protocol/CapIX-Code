@@ -58,6 +58,7 @@ export interface ContentDeltaEvent extends AgentEventBase {
 
 export interface ToolRequestedEvent extends AgentEventBase {
   type: 'tool.requested';
+  toolCallId: string;
   toolName: string;
   args: Record<string, unknown>;
   cwd?: string;
@@ -68,11 +69,13 @@ export interface ToolRequestedEvent extends AgentEventBase {
 
 export interface ToolApprovedEvent extends AgentEventBase {
   type: 'tool.approved';
+  toolCallId: string;
   toolName: string;
 }
 
 export interface ToolRejectedEvent extends AgentEventBase {
   type: 'tool.rejected';
+  toolCallId: string;
   toolName: string;
   reason: string;
 }

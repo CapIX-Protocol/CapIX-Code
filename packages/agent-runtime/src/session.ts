@@ -7,8 +7,12 @@
  */
 
 import type { AgentEvent } from './events.js';
+import type { AgentMode } from './modes.js';
+import type { SpecialistAgent } from './specialists.js';
 
 export interface CreateSessionInput {
+  /** Adopt an externally-assigned session id (e.g. the host engine's). */
+  sessionId?: string;
   modelId?: string;
   projectId?: string;
   workspaceRoot?: string;
@@ -16,6 +20,10 @@ export interface CreateSessionInput {
   routeMode?: 'auto' | 'private' | 'routed';
   privateEndpointId?: string;
   instructions?: string;
+  /** Initial mode; defaults to 'build'. */
+  mode?: AgentMode;
+  parentSessionId?: string;
+  specialistRole?: string;
 }
 
 export interface Session {
@@ -23,12 +31,50 @@ export interface Session {
   modelId: string;
   projectId?: string;
   routeMode: 'auto' | 'private' | 'routed';
+  mode: AgentMode;
+  workspaceRoot?: string;
+  parentSessionId?: string;
+  specialistRole?: string;
   createdAt: string;
   updatedAt: string;
   totalInputUnits: number;
   totalOutputUnits: number;
   totalCostMinor: string;
   status: 'active' | 'idle' | 'completed' | 'failed';
+}
+
+export type PlanStepStatus = 'pending' | 'in-progress' | 'completed' | 'failed' | 'skipped';
+
+export interface PlanStepInput {
+  description: string;
+  files?: string[];
+  tests?: string[];
+}
+
+export interface RuntimePlanStep {
+  stepId: string;
+  idx: number;
+  description: string;
+  status: PlanStepStatus;
+  files: string[];
+  tests: string[];
+}
+
+export interface RuntimePlan {
+  planId: string;
+  sessionId: string;
+  goal: string;
+  status: 'draft' | 'active' | 'completed' | 'abandoned';
+  definitionOfDone: string[];
+  steps: RuntimePlanStep[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePlanInput {
+  goal: string;
+  definitionOfDone?: string[];
+  steps?: PlanStepInput[];
 }
 
 export interface SendMessageInput {
@@ -153,6 +199,19 @@ export interface AgentRuntime {
   getEpoch(sessionId: string, epoch: bigint): Promise<SettlementEpoch>;
 
   attachWorkspace(sessionId: string, workspaceRoot: string): Promise<void>;
+
+  // ── Modes ───────────────────────────────────────────────────────────────
+  setMode(sessionId: string, mode: AgentMode): Promise<void>;
+  getMode(sessionId: string): Promise<AgentMode>;
+
+  // ── Plans ───────────────────────────────────────────────────────────────
+  createPlan(sessionId: string, input: CreatePlanInput): Promise<RuntimePlan>;
+  getPlan(planId: string): Promise<RuntimePlan>;
+  listPlans(sessionId: string): Promise<RuntimePlan[]>;
+  updatePlanStep(planId: string, stepId: string, status: PlanStepStatus): Promise<RuntimePlan>;
+
+  // ── Specialists ─────────────────────────────────────────────────────────
+  listSpecialists(): SpecialistAgent[];
 
   getDiff(sessionId: string, filePath?: string): Promise<{ filePath: string; diff: string }[]>;
   applyPatch(sessionId: string, filePath: string, patch: string): Promise<void>;
