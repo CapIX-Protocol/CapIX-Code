@@ -198,6 +198,9 @@ enum AuthCommand {
     Status,
     /// Clear all credentials and force re-authentication
     Reset,
+    /// Print a fresh short-lived access token as JSON for trusted Capix
+    /// clients (IDE, MCP) that broker credentials through this CLI
+    Token,
 }
 
 #[derive(Subcommand)]
@@ -1616,6 +1619,26 @@ fn quote(prompt: &[String], asset: Option<&str>, model: Option<&str>) -> Result<
     Ok(ExitCode::SUCCESS)
 }
 
+/// Emit a fresh access token for trusted Capix clients (IDE, MCP) that use
+/// this CLI as the native credential broker. The token is short-lived; the
+/// refresh credential never leaves the OS keychain. Output is a single JSON
+/// object on stdout so callers can parse it without scraping prose.
+fn auth_token() -> Result<ExitCode, String> {
+    match access_token() {
+        Ok(token) => {
+            println!(
+                "{}",
+                serde_json::json!({ "access_token": token, "token_type": "Bearer" })
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(error) => {
+            eprintln!("capix-code: {error}");
+            Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
 fn auth_status() -> Result<ExitCode, String> {
     if std::env::var("CAPIX_API_KEY")
         .map(|value| !value.trim().is_empty())
@@ -2182,6 +2205,7 @@ fn main() -> ExitCode {
         Command::Auth { subcommand } => match subcommand {
             AuthCommand::Status => auth_status(),
             AuthCommand::Reset => auth_reset(),
+            AuthCommand::Token => auth_token(),
         },
         Command::Settlement { subcommand } => match subcommand {
             SettlementCommand::Status => settlement_status(),
