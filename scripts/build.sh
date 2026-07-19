@@ -87,7 +87,7 @@ TCSONFIG
   cp -R "$DIR/commands" "$ARTIFACT/commands"
   # Build and bundle the MCP server from the capix-mcp npm package
   mkdir -p "$ARTIFACT/mcp" "$ARTIFACT/mcp/node_modules"
-  npm install capix-mcp@2.1.0 --prefix "$DIR/dist/mcp-tmp" 2>/dev/null
+  npm install capix-mcp@2.1.1 --prefix "$DIR/dist/mcp-tmp" 2>/dev/null
   cp -R "$DIR/dist/mcp-tmp/node_modules/capix-mcp/dist/"* "$ARTIFACT/mcp/" 2>/dev/null
   cp "$DIR/dist/mcp-tmp/node_modules/capix-mcp/package.json" "$ARTIFACT/mcp/" 2>/dev/null
   # capix-mcp 2.1.0 was published with stale 2.0.0 constants in its compiled
