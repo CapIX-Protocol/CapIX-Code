@@ -108,7 +108,6 @@ function adaptRuntimeTools(defs: ToolDefinition[]): Record<string, ReturnType<ty
 }
 import * as routing from './routing-client.js';
 import { sessionStatus } from './tui/index.js';
-import { orchestrationPanel } from './tui/orchestration-panel.js';
 import { intelligenceContext } from './tui/intelligence-context.js';
 import { McpSupervisor } from './mcp-supervisor.js';
 import { InlineCompletionSession } from './completion/inline-completion.js';
@@ -123,7 +122,7 @@ import {
   type ToolRiskClass,
 } from '@capix/agent-runtime';
 
-export const CAPIX_PLUGIN_VERSION = '2.2.5';
+export const CAPIX_PLUGIN_VERSION = '2.3.0';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -1341,7 +1340,10 @@ export const plugin: Plugin = async (
       'auth service, and database. Returns the product URL, admin access, ' +
       'and cost tracking.',
     args: {
-      planId: z.string().optional().describe('MVP plan id to deploy (default: current approved plan).'),
+      planId: z
+        .string()
+        .optional()
+        .describe('MVP plan id to deploy (default: current approved plan).'),
     },
     async execute(args, context) {
       const plan = mvpPlanner.getCurrentPlan();
@@ -1387,14 +1389,18 @@ export const plugin: Plugin = async (
       'and scaling topology.',
     args: {
       mvpPath: z.string().describe('Path to the existing MVP directory.'),
-      scaleIntent: z.string().describe('How to scale it (e.g. "to production", "handle 10k users").'),
+      scaleIntent: z
+        .string()
+        .describe('How to scale it (e.g. "to production", "handle 10k users").'),
       approve: z.boolean().optional().describe('Approve the resulting plan for deployment.'),
     },
     async execute(args, context) {
       sessionStatus.setSession(context.sessionID ?? null);
       sessionStatus.setAgentState('planning');
       try {
-        const result = await fullSolutionPlanner.design(args.scaleIntent, { fromMvp: args.mvpPath });
+        const result = await fullSolutionPlanner.design(args.scaleIntent, {
+          fromMvp: args.mvpPath,
+        });
         const plan = result.architecture;
         if (args.approve) {
           fullSolutionPlanner.approve(plan.id);
