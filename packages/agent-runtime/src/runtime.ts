@@ -1071,7 +1071,7 @@ export class CapixAgentRuntime implements AgentRuntime {
       );
     }
     return this.createSession({
-      modelId: parent.model_id,
+      modelId: specialist.model,  // Use the specialist's assigned model, not the parent's
       projectId: parent.project_id ?? undefined,
       workspaceRoot: parent.workspace_root ?? undefined,
       routeMode: parent.route_mode as Session['routeMode'],

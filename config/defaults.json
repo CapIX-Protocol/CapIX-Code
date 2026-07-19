@@ -10,7 +10,51 @@
       },
       "models": {
         "auto": {
-          "name": "Capix Auto (smart route \u2014 picks the best model for the task)",
+          "name": "Capix Auto (smart route — picks the best model for the task)",
+          "limit": {
+            "context": 128000,
+            "output": 64000
+          },
+          "api": {
+            "url": "https://www.capix.network/api/v1",
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
+          }
+        },
+        "auto-fast": {
+          "name": "Capix Auto Fast (smart route — prioritizes speed and low cost)",
+          "limit": {
+            "context": 128000,
+            "output": 64000
+          },
+          "api": {
+            "url": "https://www.capix.network/api/v1",
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
+          }
+        },
+        "auto-balanced": {
+          "name": "Capix Auto Balanced (smart route — balances quality and cost)",
+          "limit": {
+            "context": 128000,
+            "output": 64000
+          },
+          "api": {
+            "url": "https://www.capix.network/api/v1",
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
+          }
+        },
+        "auto-best": {
+          "name": "Capix Auto Best (smart route — prioritizes quality over cost)",
+          "limit": {
+            "context": 128000,
+            "output": 64000
+          },
+          "api": {
+            "url": "https://www.capix.network/api/v1",
+            "npm": "file://__RUNTIME_DIR__/packages/runtime-provider/src/index.ts"
+          }
+        },
+        "auto-cheapest": {
+          "name": "Capix Auto Cheapest (always picks the cheapest available model)",
           "limit": {
             "context": 128000,
             "output": 64000
@@ -21,7 +65,7 @@
           }
         },
         "supergemma-gemma3-27b": {
-          "name": "SuperGemma \u00b7 Gemma 3 27B",
+          "name": "SuperGemma · Gemma 3 27B",
           "limit": {
             "context": 131072,
             "output": 32768
@@ -32,7 +76,7 @@
           }
         },
         "supergemma-gemma3-12b": {
-          "name": "SuperGemma \u00b7 Gemma 3 12B",
+          "name": "SuperGemma · Gemma 3 12B",
           "limit": {
             "context": 131072,
             "output": 16384
@@ -43,7 +87,7 @@
           }
         },
         "supergemma-gemma3-4b": {
-          "name": "SuperGemma \u00b7 Gemma 3 4B",
+          "name": "SuperGemma · Gemma 3 4B",
           "limit": {
             "context": 131072,
             "output": 8192
@@ -54,7 +98,7 @@
           }
         },
         "supergemma-codegemma-7b": {
-          "name": "SuperGemma \u00b7 CodeGemma 7B",
+          "name": "SuperGemma · CodeGemma 7B",
           "limit": {
             "context": 8192,
             "output": 8192
@@ -102,7 +146,9 @@
   },
   "model": "{env:CAPIX_MODEL:capix/auto}",
   "small_model": "capix/supergemma-gemma3-4b",
-  "enabled_providers": ["capix"],
+  "enabled_providers": [
+    "capix"
+  ],
   "lsp": true,
   "permission": {
     "edit": "ask",
@@ -111,14 +157,22 @@
   "mcp": {
     "capix": {
       "type": "local",
-      "command": ["node", "__INSTALL_ROOT__/mcp/capix-mcp.js", "server", "--stdio"],
+      "command": [
+        "node",
+        "__INSTALL_ROOT__/mcp/capix-mcp.js",
+        "server",
+        "--stdio"
+      ],
       "enabled": true,
       "environment": {}
     }
   },
   "share": "manual",
   "autoupdate": false,
-  "plugin": ["./src/native-bridge.ts", "./src/plugin.ts"],
+  "plugin": [
+    "./src/native-bridge.ts",
+    "./src/plugin.ts"
+  ],
   "command": {
     "plan": {
       "description": "Create a research-first implementation plan",
@@ -144,11 +198,11 @@
       "template": "file://commands/covenant.md"
     },
     "memory": {
-      "description": "Search memory \u2014 show recent memory nodes by type",
+      "description": "Search memory — show recent memory nodes by type",
       "template": "file://commands/memory.md"
     },
     "remember": {
-      "description": "Write a memory node \u2014 persist a decision, fact, constraint, or observation",
+      "description": "Write a memory node — persist a decision, fact, constraint, or observation",
       "template": "file://commands/remember.md"
     },
     "forget": {
@@ -156,15 +210,15 @@
       "template": "file://commands/forget.md"
     },
     "graph": {
-      "description": "Query the knowledge graph \u2014 nodes and relationships",
+      "description": "Query the knowledge graph — nodes and relationships",
       "template": "file://commands/graph.md"
     },
     "decisions": {
-      "description": "List recent decisions from memory \u2014 alternatives, evidence, trade-offs",
+      "description": "List recent decisions from memory — alternatives, evidence, trade-offs",
       "template": "file://commands/decisions.md"
     },
     "checkpoint": {
-      "description": "Create a verified checkpoint \u2014 repo state, tests, plan, agents, infra, costs",
+      "description": "Create a verified checkpoint — repo state, tests, plan, agents, infra, costs",
       "template": "file://commands/checkpoint.md"
     },
     "review": {
@@ -173,7 +227,7 @@
       "template": "file://commands/review.md"
     },
     "verify-checks": {
-      "description": "Run verification checks \u2014 build, type, lint, test, security, diff",
+      "description": "Run verification checks — build, type, lint, test, security, diff",
       "template": "file://commands/verify-checks.md"
     },
     "handoff": {
@@ -186,23 +240,23 @@
       "template": "file://commands/context.md"
     },
     "compact": {
-      "description": "Compact the current session context \u2014 preserve critical constraints",
+      "description": "Compact the current session context — preserve critical constraints",
       "template": "file://commands/compact.md"
     },
     "deploy": {
-      "description": "Deploy infrastructure via Capix MCP \u2014 quote, approve, provision",
+      "description": "Deploy infrastructure via Capix MCP — quote, approve, provision",
       "template": "file://commands/deploy.md"
     },
     "train": {
-      "description": "Train a specialized model via Capix \u2014 submit dataset, monitor, register",
+      "description": "Train a specialized model via Capix — submit dataset, monitor, register",
       "template": "file://commands/train.md"
     },
     "cleanup": {
-      "description": "Clean up task resources \u2014 destroy infra, reconcile, capture billing",
+      "description": "Clean up task resources — destroy infra, reconcile, capture billing",
       "template": "file://commands/cleanup.md"
     },
     "receipts": {
-      "description": "List work receipts \u2014 useful-work evidence and anchoring status",
+      "description": "List work receipts — useful-work evidence and anchoring status",
       "template": "file://commands/receipts.md"
     },
     "network": {
@@ -230,7 +284,7 @@
       "template": "file://commands/logs.md"
     },
     "metrics": {
-      "description": "View deployment metrics \u2014 CPU, GPU, memory, network",
+      "description": "View deployment metrics — CPU, GPU, memory, network",
       "template": "file://commands/metrics.md"
     },
     "stop": {
@@ -302,7 +356,7 @@
       "template": "file://commands/update.md"
     },
     "welcome": {
-      "description": "First-run onboarding \u2014 sign in, check balance, browse models, get started",
+      "description": "First-run onboarding — sign in, check balance, browse models, get started",
       "template": "file://commands/welcome.md"
     }
   }
