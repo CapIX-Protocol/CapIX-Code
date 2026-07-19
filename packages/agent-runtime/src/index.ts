@@ -22,6 +22,8 @@ export {
 export * from './modes.js';
 export * from './specialists.js';
 export * from './orchestration.js';
+export * from './timeline.js';
+export * from './profiler.js';
 export * from './tools.js';
 export * from './diff.js';
 export * from './receipts.js';

@@ -1,0 +1,416 @@
+name: Build
+
+# Unified build pipeline: reproducible builds from locked dependencies,
+# automated tests on every supported platform, optional code signing when
+# certificates are provisioned, and an explicit rollback path for published
+# releases.
+#
+# Heavy binary builds only run on version tags and manual dispatch; the test
+# matrix runs on every push and pull request.
+
+on:
+  push:
+    branches: [main, staging]
+    tags:
+      - 'v*'
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Upload artifacts to a GitHub release for the current tag'
+        type: boolean
+        default: false
+      rollback_tag:
+        description: 'Yank this published release and restore the previous one as latest'
+        required: false
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────
+  # Test matrix — lint, typecheck, unit tests and native launcher tests on
+  # every supported platform. fail-fast is disabled so each native runner
+  # reports its own result.
+  # ────────────────────────────────────────────────────────────────────
+  test:
+    name: Test ${{ matrix.platform }}-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux credential-store build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev pkg-config
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint
+        run: npx eslint src/
+      - name: Unit tests
+        run: npx vitest run
+      - name: Require locked native dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f launcher/Cargo.lock || {
+            echo "::error::launcher/Cargo.lock is missing; reproducible build is blocked."
+            exit 1
+          }
+      - name: Native launcher tests
+        working-directory: launcher
+        run: cargo test --locked
+
+  # ────────────────────────────────────────────────────────────────────
+  # Binary builds — one native runner per platform/arch so no
+  # cross-compilation is involved. Artifacts are signed when certificates
+  # are provisioned as repository secrets; otherwise they are published
+  # with the explicit `-unsigned` flavor.
+  # ────────────────────────────────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+            npm-platform: darwin
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
+            npm-platform: darwin
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+            npm-platform: linux
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+            npm-platform: linux
+          - os: windows-latest
+            platform: win32
+            arch: x64
+            npm-platform: windows
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+      APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
+      WINDOWS_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE != '' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux credential-store build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev pkg-config
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_version="$(node -p 'require("./package.json").version')"
+          if [ "${{ github.ref_type }}" = tag ]; then
+            test "${{ github.ref_name }}" = "v$package_version"
+            node scripts/check-release-consistency.mjs "$package_version"
+          fi
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+      - name: Verify overlay
+        run: |
+          npm run compile
+          npm test
+      - name: Bootstrap pinned engine
+        shell: bash
+        run: |
+          bash scripts/bootstrap.sh
+          bash scripts/rebrand.sh
+          bash scripts/install-config.sh
+      - name: Build complete customer runtime
+        shell: bash
+        run: bash scripts/build.sh
+
+      # ── macOS signing (only when certificates are provisioned) ──────
+      - name: Import Apple signing certificate
+        if: runner.os == 'macOS' && env.APPLE_SIGNING == 'true'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/apple-cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+      - name: Sign macOS binaries
+        if: runner.os == 'macOS' && env.APPLE_SIGNING == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | grep 'Developer ID Application' | head -1 \
+            | sed -E 's/.*"(.*)"/\1/')"
+          test -n "$IDENTITY" || { echo "::error::No Developer ID Application identity found"; exit 1; }
+          codesign --force --options runtime --timestamp \
+            --sign "$IDENTITY" \
+            --keychain "$KEYCHAIN_PATH" \
+            dist/customer/engine/capix-engine \
+            dist/customer/bin/capix-code
+          codesign --verify --deep --strict dist/customer/bin/capix-code
+      - name: Notarize macOS binaries
+        if: runner.os == 'macOS' && env.APPLE_SIGNING == 'true' && secrets.APPLE_ID != ''
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ditto -c -k --keepParent dist/customer "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+
+      # ── Windows signing (only when a certificate is provisioned) ────
+      - name: Sign Windows binaries
+        if: runner.os == 'Windows' && env.WINDOWS_SIGNING == 'true'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $certPath = "$env:RUNNER_TEMP\windows-cert.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $binaries = @(
+            'dist\customer\engine\capix-engine.exe',
+            'dist\customer\bin\capix-code.exe'
+          )
+          foreach ($binary in $binaries) {
+            & signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com `
+              /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD $binary
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $binary" }
+            & signtool verify /pa $binary
+          }
+          Remove-Item $certPath -Force
+
+      - name: Packaged MCP protocol smoke test
+        run: node scripts/smoke-mcp.mjs dist/customer
+      - name: Native launcher smoke test
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = win32 ]; then
+            dist/customer/bin/capix-code.exe doctor
+          else
+            dist/customer/bin/capix-code doctor
+          fi
+      - name: Package and statically verify
+        shell: bash
+        env:
+          CAPIX_ARTIFACT_FLAVOR: ${{ (matrix.platform == 'darwin' && env.APPLE_SIGNING == 'true') || (matrix.platform == 'win32' && env.WINDOWS_SIGNING == 'true') && 'signed' || 'unsigned' }}
+        run: bash scripts/package-customer.sh "${{ steps.version.outputs.version }}" "${{ matrix.platform }}" "${{ matrix.arch }}"
+      - name: Package npm native runtime
+        shell: bash
+        run: |
+          node scripts/prepare-npm-platform.mjs "${{ matrix.npm-platform }}" "${{ matrix.arch }}" dist/customer npm-platform
+          cd "npm-platform/${{ matrix.npm-platform }}-${{ matrix.arch }}"
+          npm pack --pack-destination "$GITHUB_WORKSPACE/release-artifacts"
+      - name: Verify built artifacts
+        shell: bash
+        run: bash scripts/verify-build.sh release-artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capix-code-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-artifacts/
+          retention-days: 30
+
+  # ────────────────────────────────────────────────────────────────────
+  # Manifest — merge every platform artifact into one release directory,
+  # generate the immutable release manifest, SBOM, provenance record and
+  # SHA-256 checksums.
+  # ────────────────────────────────────────────────────────────────────
+  manifest:
+    name: Release manifest
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install release metadata dependencies
+        # npm 11 rejects intentionally unpublished optional platform packages
+        # before their release assets exist. Pin npm 10 so SBOM generation
+        # remains reproducible.
+        run: npx --yes npm@10.9.4 ci --ignore-scripts
+      - name: Materialize immutable release manifest and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          find artifacts -type f -exec cp {} release-artifacts/ \;
+
+          node scripts/build-manifest.mjs \
+            --entries release-artifacts \
+            --base-url https://github.com/CapIX-Protocol/CapIX-Code/releases/download \
+            --stable-version "${{ github.ref_name }}" \
+            --source-sha "${{ github.sha }}" \
+            --launcher-version "${{ github.ref_name }}" \
+            --opencode-version 1.17.18 \
+            --plugin-version "${{ github.ref_name }}" \
+            --provider-version "${{ github.ref_name }}" \
+            --out release-artifacts/release-manifest.json \
+            --require-all
+          node scripts/validate-manifest.mjs release-artifacts/release-manifest.json
+
+          cp NOTICE release-artifacts/NOTICE
+          npx --yes npm@10.9.4 sbom --sbom-format spdx > release-artifacts/sbom.spdx.json
+          jq -n \
+            --arg tag "${{ github.ref_name }}" \
+            --arg sourceSha "${{ github.sha }}" \
+            --arg workflow "${{ github.workflow }}" \
+            --arg runId "${{ github.run_id }}" \
+            '{schemaVersion:1, product:"capix-code", tag:$tag, sourceSha:$sourceSha, builder:"github-actions", workflow:$workflow, runId:$runId}' \
+            > release-artifacts/provenance.json
+
+          find release-artifacts -maxdepth 1 -type f ! -name '*.sha256' -print0 | while IFS= read -r -d '' file; do
+            digest="$(sha256sum "$file" | awk '{print $1}')"
+            printf '%s  %s\n' "$digest" "$(basename "$file")" > "$file.sha256"
+          done
+          bash scripts/verify-build.sh release-artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: capix-code-release-${{ github.ref_name }}
+          path: release-artifacts/
+          retention-days: 90
+
+  # ────────────────────────────────────────────────────────────────────
+  # Publish — upload the verified manifest directory to the GitHub release
+  # for the tag. On manual dispatch this only runs when publish=true.
+  # ────────────────────────────────────────────────────────────────────
+  publish:
+    name: Publish GitHub release
+    needs: [manifest]
+    if: >-
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Stage release directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          find artifacts -type f -exec cp {} release-artifacts/ \;
+          bash scripts/verify-build.sh release-artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Capix Code ${{ github.ref_name }}
+          draft: false
+          files: release-artifacts/*
+          body: |
+            Capix Code customer binaries for macOS arm64/x64, Linux arm64/x64 and Windows x64,
+            plus npm platform packages.
+
+            Artifacts built without provisioned certificates carry the `-unsigned` flavor in
+            their file name. Verify the adjacent SHA-256 file before use.
+            Each platform was built and smoke-tested on its native GitHub-hosted runner.
+            Source commit: `${{ github.sha }}`
+
+            Rollback: `gh workflow run build.yml -f rollback_tag=${{ github.ref_name }}`
+
+  # ────────────────────────────────────────────────────────────────────
+  # Rollback — yank a bad published release and restore the previous one
+  # as latest. Dispatch only; never runs as part of a normal build.
+  # ────────────────────────────────────────────────────────────────────
+  rollback:
+    name: Rollback ${{ inputs.rollback_tag }}
+    if: github.event_name == 'workflow_dispatch' && inputs.rollback_tag != ''
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write
+    steps:
+      - name: Yank release and restore previous as latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          BAD_TAG="${{ inputs.rollback_tag }}"
+          gh release view "$BAD_TAG" --repo "${{ github.repository }}" >/dev/null
+
+          # Mark the yanked release as a pre-release so installers stop
+          # selecting it, then find the newest remaining stable release.
+          gh release edit "$BAD_TAG" --repo "${{ github.repository }}" \
+            --prerelease --latest=false \
+            --notes "YANKED: this release was rolled back on $(date -u +%Y-%m-%d). Do not install."
+
+          PREV_TAG="$(gh release list --repo "${{ github.repository }}" \
+            --exclude-pre-releases --exclude-drafts --limit 50 --json tagName,isLatest \
+            --jq '[.[] | select(.tagName != "'"$BAD_TAG"'")][0].tagName')"
+          test -n "$PREV_TAG" || { echo "::error::No previous stable release to restore"; exit 1; }
+          gh release edit "$PREV_TAG" --repo "${{ github.repository }}" --latest
+          echo "Rolled back $BAD_TAG; $PREV_TAG is now latest."
