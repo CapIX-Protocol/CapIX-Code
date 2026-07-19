@@ -32,6 +32,11 @@ if grep -q '"~/.capix-code/mcp' "$ROOT/config/defaults.json"; then
   echo "✗ MCP configuration is pinned to a home-directory layout"; exit 1;
 fi
 grep -q 'SuperGemma' "$ROOT/config/defaults.json"
+# No dangling symlinks anywhere in the artifact — a dead link crashes the
+# npm postinstall's dereferencing copy (shipped broken in v2.3.0 once).
+if find "$ROOT" -type l ! -exec test -e {} \; -print | grep .; then
+  echo "✗ artifact contains dangling symlinks"; exit 1;
+fi
 grep -q '/oauth/authorize' "$ROOT/runtime/src/broker.ts"
 grep -q '/oauth/token' "$ROOT/runtime/src/broker.ts"
 expected_version="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")).version' "$ROOT/runtime/package.json")"

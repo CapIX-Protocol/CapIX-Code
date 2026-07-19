@@ -106,6 +106,12 @@ TCSONFIG
   # zod-to-json-schema and makes the packaged MCP process exit at startup.
   cp -R "$DIR/dist/mcp-tmp/node_modules/." "$ARTIFACT/mcp/node_modules/"
   rm -rf "$ARTIFACT/mcp/node_modules/capix-mcp"
+  # npm created .bin/capix-mcp as a symlink into the now-removed nested
+  # package; repoint it at the wrapper so no dangling symlink ships (a
+  # dangling link crashes postinstall's dereferencing copy).
+  if [ -L "$ARTIFACT/mcp/node_modules/.bin/capix-mcp" ] || [ -e "$ARTIFACT/mcp/node_modules/.bin/capix-mcp" ]; then
+    ln -sfn "../../capix-mcp.js" "$ARTIFACT/mcp/node_modules/.bin/capix-mcp"
+  fi
   # Create an entry point wrapper. The launcher supplies a short-lived access
   # token in CAPIX_API_KEY; the MCP process must never read or persist refresh
   # material itself.
