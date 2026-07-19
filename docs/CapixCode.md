@@ -262,11 +262,44 @@ capix-code models
 
 Fetches and pretty-prints the live model catalog from `GET /api/v1/models` using the authenticated access token.
 
-### 3.6 Other CLI commands
+### 3.6 `capix-code new`
+
+```bash
+capix-code new                          # list templates
+capix-code new <template> [name]        # scaffold into ./<name>
+capix-code new <template> [name] --deploy
+```
+
+One-command MVP scaffolding. Template resolution is API-first: the list comes
+from `GET /api/v1/templates` (public route). The API catalog is a *deployment
+spec* catalog — it carries stack/features/customization metadata and a
+workload spec for the quote → deployment pipeline, but no local file tree — so
+local scaffolding uses the built-in file trees (`static-site`, `next-saas`).
+The listing marks which templates came from the API and which are built in;
+asking to scaffold an API-only template fails with an explicit explanation.
+
+Scaffolding writes the template's file tree into `./<name>` (default: the
+template id), substituting the project name for `{{PROJECT_NAME}}` in every
+file. It fails if the target directory exists and is non-empty. Names must
+match the control-plane deployment-name rule (`^[a-z0-9][a-z0-9-]{1,62}$`).
+
+With `--deploy`: if `./<name>` has a git remote `origin` (detected via
+`git remote get-url origin`), the CLI POSTs `{name, sourceRef, buildCommand}`
+to `/api/v1/websites` with an idempotency key and prints the resulting website
+id / status / preview URL. Without a remote it prints the exact
+`git init` / `remote add` / `push` steps and exits 0 — no deploy is claimed.
+If the API is unreachable or returns an error, the failure is reported; the
+scaffolded files remain on disk.
+
+The API base is `WEB_ORIGIN`, overridable via `CAPIX_WEB_ORIGIN` (used by the
+launcher's mock-server tests).
+
+### 3.7 Other CLI commands
 
 | Command | Description |
 |---|---|
 | `capix-code logout` | Deletes the keyring entry and removes the file-based credentials store |
+| `capix-code new [template] [name] [--deploy]` | Lists templates or scaffolds a new project; `--deploy` POSTs to `/api/v1/websites` when a git remote exists (see §3.6) |
 | `capix-code auth status` | Shows sign-in status and fetches `/api/v1/me` account info |
 | `capix-code auth reset` | Clears all credentials (keyring + file store) |
 | `capix-code account` | Fetches and prints `/api/v1/me` |

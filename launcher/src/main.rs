@@ -1,5 +1,6 @@
 mod format;
 mod merkle_verify;
+mod new_command;
 
 use base64::Engine as _;
 use clap::{Parser, Subcommand};
@@ -135,6 +136,16 @@ enum Command {
     Destroy {
         /// Deployment or saga ID to destroy
         id: String,
+    },
+    /// Scaffold a new project from a template (capix new)
+    New {
+        /// Template id (omit to list available templates)
+        template: Option<String>,
+        /// Project name / target directory (defaults to the template id)
+        name: Option<String>,
+        /// Deploy after scaffolding (requires a pushed git remote)
+        #[arg(long)]
+        deploy: bool,
     },
 }
 
@@ -2245,6 +2256,11 @@ fn main() -> ExitCode {
             specialize,
         } => train(&model, &dataset, &specialize),
         Command::Destroy { id } => destroy(&id),
+        Command::New {
+            template,
+            name,
+            deploy,
+        } => new_command::run(template.as_deref(), name.as_deref(), deploy),
     };
     match result {
         Ok(code) => code,
