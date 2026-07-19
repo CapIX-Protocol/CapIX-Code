@@ -122,7 +122,7 @@ import {
   type ToolRiskClass,
 } from '@capix/agent-runtime';
 
-export const CAPIX_PLUGIN_VERSION = '2.3.0';
+export const CAPIX_PLUGIN_VERSION = '2.3.1';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */

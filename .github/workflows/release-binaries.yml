@@ -222,5 +222,9 @@ jobs:
           test "$(node -p 'require("./package.json").version')" = "${{ inputs.version }}"
       - name: Publish capix-code
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # OIDC trusted publishing: no NODE_AUTH_TOKEN env var.
+        # npm uses the GitHub OIDC token because the package is registered
+        # as a trusted publisher on npmjs.com. To enable, the package owner
+        # configures trust under: npmjs.com → capix-code → Settings →
+        # Publishing access → Configure trusted publisher → add
+        # CapIX-Protocol/CapIX-Code and workflow filename release-binaries.yml.
