@@ -43,6 +43,7 @@ import {
 
 let workDir: string;
 let seq = 0;
+const openRuntimes: CapixAgentRuntime[] = [];
 
 function makeEvent(type: string, data: object, turnId = 'turn_1'): AgentEvent {
   seq += 1;
@@ -99,12 +100,14 @@ async function* streamOf(events: AgentEvent[]): AsyncGenerator<AgentEvent> {
 }
 
 function makeRuntime(invoker: ModelInvoker, dbPath = ':memory:'): CapixAgentRuntime {
-  return new CapixAgentRuntime({
+  const runtime = new CapixAgentRuntime({
     dbPath,
     workspaceRoot: workDir,
     modelInvoker: invoker,
     autoApprove: true,
   });
+  openRuntimes.push(runtime);
+  return runtime;
 }
 
 /** An invoker that plays back one chunk list per model round. */
@@ -123,6 +126,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Close SQLite handles before deleting the workspace — Windows cannot
+  // unlink an open database file (EBUSY).
+  while (openRuntimes.length) openRuntimes.pop()!.close();
   rmSync(workDir, { recursive: true, force: true });
 });
 
