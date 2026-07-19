@@ -108,6 +108,8 @@ function adaptRuntimeTools(defs: ToolDefinition[]): Record<string, ReturnType<ty
 }
 import * as routing from './routing-client.js';
 import { sessionStatus } from './tui/index.js';
+import { orchestrationPanel } from './tui/orchestration-panel.js';
+import { intelligenceContext } from './tui/intelligence-context.js';
 import { McpSupervisor } from './mcp-supervisor.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 import {
@@ -432,11 +434,19 @@ const INFRA_COMMAND_PATTERNS: Array<{ pattern: RegExp; action: 'infra:deploy' | 
  */
 function createModelInvoker(meta: CapixClientMeta): ModelInvoker {
   return async (prompt, opts) => {
+    // Intelligence context: inject relevant memory into the prompt when loaded.
+    // Failures are non-blocking — an intelligence outage never stops inference.
+    let augmented = prompt;
+    try {
+      augmented = await intelligenceContext.augmentPrompt(prompt);
+    } catch {
+      augmented = prompt;
+    }
     let text = '';
     for await (const chunk of capixStream(
       {
         model: process.env.CAPIX_PLANNER_MODEL ?? 'capix/auto',
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content: augmented }],
       },
       { meta, signal: opts?.signal }
     )) {
@@ -1778,4 +1788,13 @@ export { capixProvider, CredentialBroker, WorkspaceSandbox };
 export * as routing from './routing-client.js';
 export { Architect, Deployer, Trainer } from './planner/index.js';
 export { sessionStatus, renderStatusLine } from './tui/index.js';
+export {
+  orchestrationPanel,
+  renderOrchestrationPanel,
+  renderOrchestrationLine,
+  intelligenceContext,
+  intelligencePanel,
+  renderIntelligencePanel,
+  DelegationManager,
+} from './tui/index.js';
 export { getMcpSupervisor };

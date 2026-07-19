@@ -91,7 +91,7 @@ function completionStream(text: string): Response {
 /** Fetch stub: catalog on /models, streamed completion on the inference route. */
 function stubCapixFetch(completionText: string, opts: { failCatalog?: boolean } = {}) {
   return vi.fn().mockImplementation((url: string) => {
-    if (url.includes('/models')) {
+    if (String(url).includes('/models')) {
       if (opts.failCatalog) return Promise.resolve(new Response('boom', { status: 500 }));
       return Promise.resolve(
         new Response(JSON.stringify(CATALOG), {
@@ -224,8 +224,8 @@ describe('completion engine', () => {
     const result = await engine.complete(makeContext());
 
     expect(result).toMatchObject({ text: 'return a + b;', model: 'cheap-coder', fromCache: false });
-    const inferenceCall = fetchMock.mock.calls.find(([url]: [string]) =>
-      url.includes('/inference/chat/completions')
+    const inferenceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes('/inference/chat/completions')
     );
     expect(inferenceCall).toBeDefined();
     const body = JSON.parse(inferenceCall?.[1]?.body as string);
@@ -242,8 +242,8 @@ describe('completion engine', () => {
     const result = await engine.complete(makeContext());
 
     expect(result?.model).toBe('capix/auto');
-    const inferenceCall = fetchMock.mock.calls.find(([url]: [string]) =>
-      url.includes('/inference/chat/completions')
+    const inferenceCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes('/inference/chat/completions')
     );
     const body = JSON.parse(inferenceCall?.[1]?.body as string);
     expect(body.model).toBe('capix/auto');
@@ -260,8 +260,8 @@ describe('completion engine', () => {
 
     expect(first?.fromCache).toBe(false);
     expect(second).toMatchObject({ text: 'return a + b;', fromCache: true });
-    const inferenceCalls = fetchMock.mock.calls.filter(([url]: [string]) =>
-      url.includes('/inference/chat/completions')
+    const inferenceCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes('/inference/chat/completions')
     );
     expect(inferenceCalls).toHaveLength(1);
   });
@@ -277,8 +277,8 @@ describe('completion engine', () => {
 
     expect(staleResult).toBeNull();
     expect(freshResult?.text).toBe('return a + b;');
-    const inferenceCalls = fetchMock.mock.calls.filter(([url]: [string]) =>
-      url.includes('/inference/chat/completions')
+    const inferenceCalls = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes('/inference/chat/completions')
     );
     expect(inferenceCalls).toHaveLength(1);
   });
@@ -293,7 +293,7 @@ describe('completion engine', () => {
 
     await expect(pending).resolves.toBeNull();
     expect(
-      fetchMock.mock.calls.filter(([url]: [string]) => url.includes('/inference/chat/completions'))
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes('/inference/chat/completions'))
     ).toHaveLength(0);
   });
 
@@ -387,7 +387,7 @@ describe('inline completion session', () => {
 
     expect(session.getState()).toBe('idle');
     expect(
-      fetchMock.mock.calls.filter(([url]: [string]) => url.includes('/inference/chat/completions'))
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes('/inference/chat/completions'))
     ).toHaveLength(0);
   });
 
