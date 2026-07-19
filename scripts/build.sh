@@ -108,8 +108,10 @@ TCSONFIG
   rm -rf "$ARTIFACT/mcp/node_modules/capix-mcp"
   # npm created .bin/capix-mcp as a symlink into the now-removed nested
   # package; repoint it at the wrapper so no dangling symlink ships (a
-  # dangling link crashes postinstall's dereferencing copy).
-  if [ -L "$ARTIFACT/mcp/node_modules/.bin/capix-mcp" ] || [ -e "$ARTIFACT/mcp/node_modules/.bin/capix-mcp" ]; then
+  # dangling link crashes postinstall's dereferencing copy). Windows npm
+  # uses .cmd shims instead of POSIX symlinks — nothing to repoint there.
+  if [ -z "$EXE_SUFFIX" ]; then
+    mkdir -p "$ARTIFACT/mcp/node_modules/.bin"
     ln -sfn "../../capix-mcp.js" "$ARTIFACT/mcp/node_modules/.bin/capix-mcp"
   fi
   # Create an entry point wrapper. The launcher supplies a short-lived access
