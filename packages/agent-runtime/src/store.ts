@@ -118,6 +118,31 @@ export interface ReceiptRow {
   created_at: string;
 }
 
+/**
+ * One orchestrated delegation (orchestration.ts). Cost stays integer minor
+ * units as TEXT; `progress` is a 0..1 REAL (not money).
+ */
+export interface DelegationRow {
+  id: string;
+  pipeline_id: string | null;
+  stage: string | null;
+  role: string;
+  task: string;
+  context: string;
+  status: string;
+  progress: number | null;
+  current_step: string | null;
+  cost_minor: string;
+  input_units: number;
+  output_units: number;
+  outcome: string | null;
+  summary: string | null;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -225,6 +250,29 @@ CREATE TABLE IF NOT EXISTS receipts (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_session ON receipts(session_id, created_at);
+
+CREATE TABLE IF NOT EXISTS delegations (
+  id TEXT PRIMARY KEY,
+  pipeline_id TEXT,
+  stage TEXT,
+  role TEXT NOT NULL,
+  task TEXT NOT NULL,
+  context TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'queued',
+  progress REAL,
+  current_step TEXT,
+  cost_minor TEXT NOT NULL DEFAULT '0',
+  input_units INTEGER NOT NULL DEFAULT 0,
+  output_units INTEGER NOT NULL DEFAULT 0,
+  outcome TEXT,
+  summary TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_delegations_pipeline ON delegations(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_delegations_created ON delegations(created_at);
 `;
 
 /**
@@ -461,5 +509,44 @@ export class RuntimeStore {
     return this.db
       .prepare('SELECT * FROM receipts WHERE session_id = ? ORDER BY created_at ASC')
       .all(sessionId) as ReceiptRow[];
+  }
+
+  // ── Delegations (orchestration) ─────────────────────────────────────────
+
+  insertDelegation(row: DelegationRow): void {
+    this.db
+      .prepare(
+        `INSERT INTO delegations (id, pipeline_id, stage, role, task, context, status,
+           progress, current_step, cost_minor, input_units, output_units, outcome,
+           summary, error, created_at, started_at, completed_at)
+         VALUES (@id, @pipeline_id, @stage, @role, @task, @context, @status,
+           @progress, @current_step, @cost_minor, @input_units, @output_units, @outcome,
+           @summary, @error, @created_at, @started_at, @completed_at)`
+      )
+      .run(row);
+  }
+
+  updateDelegation(id: string, fields: Partial<DelegationRow>): void {
+    const keys = Object.keys(fields) as Array<keyof DelegationRow>;
+    if (keys.length === 0) return;
+    const sets = keys.map((k) => `${k} = @${k}`).join(', ');
+    this.db.prepare(`UPDATE delegations SET ${sets} WHERE id = @id`).run({ ...fields, id });
+  }
+
+  getDelegation(id: string): DelegationRow | null {
+    const row = this.db.prepare('SELECT * FROM delegations WHERE id = ?').get(id) as
+      DelegationRow | undefined;
+    return row ?? null;
+  }
+
+  listDelegations(limit: number, pipelineId?: string): DelegationRow[] {
+    if (pipelineId) {
+      return this.db
+        .prepare('SELECT * FROM delegations WHERE pipeline_id = ? ORDER BY created_at ASC LIMIT ?')
+        .all(pipelineId, limit) as DelegationRow[];
+    }
+    return this.db
+      .prepare('SELECT * FROM delegations ORDER BY created_at DESC LIMIT ?')
+      .all(limit) as DelegationRow[];
   }
 }

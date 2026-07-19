@@ -21,6 +21,7 @@ export {
 } from './intelligence.js';
 export * from './modes.js';
 export * from './specialists.js';
+export * from './orchestration.js';
 export * from './tools.js';
 export * from './diff.js';
 export * from './receipts.js';
