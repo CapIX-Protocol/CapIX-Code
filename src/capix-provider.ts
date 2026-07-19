@@ -260,6 +260,7 @@ async function classifyHttpError(res: Response): Promise<never> {
     detail?: string;
     title?: string;
     code?: string;
+    retryAfterSeconds?: number;
     error?: string | { message?: string; code?: string };
   }) | undefined;
   const nestedError = typeof problem?.error === 'object' ? problem.error : undefined;
@@ -273,8 +274,14 @@ async function classifyHttpError(res: Response): Promise<never> {
     problem?.title ??
     res.statusText ??
     'inference request failed';
-  const supportId = problem?.supportId;
+  const supportId = problem?.supportId ?? problem?.traceId;
   const retryAfter = res.headers.get('retry-after');
+  const retryAfterMs =
+    retryAfter !== null
+      ? Math.max(0, parseFloat(retryAfter) * 1000)
+      : problem?.retryAfterSeconds !== undefined
+        ? Math.max(0, problem.retryAfterSeconds * 1000)
+        : undefined;
 
   switch (status) {
     case 401:
@@ -286,27 +293,65 @@ async function classifyHttpError(res: Response): Promise<never> {
     case 409:
       // Duplicate / in-flight — do not retry.
       throw new CapixHttpError(status, capixCode, message, supportId, 'none');
-    case 429: {
-      const retryAfterMs = retryAfter ? Math.max(0, parseFloat(retryAfter) * 1000) : undefined;
+    case 429:
       throw new CapixHttpError(status, capixCode, message, supportId, 'retry-after', retryAfterMs);
+    default: {
+      // The server's own retry classification (RFC 9457 extension) wins when
+      // present; otherwise 5xx is retryable and everything else is terminal.
+      const retryClass = problem?.retryClass ?? (status >= 500 ? 'retry' : 'none');
+      throw new CapixHttpError(status, capixCode, message, supportId, retryClass, retryAfterMs);
     }
-    default:
-      if (status >= 500) {
-        throw new CapixHttpError(status, capixCode, message, supportId, 'retry');
-      }
-      throw new CapixHttpError(status, capixCode, message, supportId, 'none');
   }
 }
 
 /** Parse a single SSE line into a typed InferenceStreamChunk. */
-function parseSseChunk(data: string): InferenceStreamChunk | null {
+function parseSseChunk(data: string, eventType?: string): InferenceStreamChunk | null {
   if (!data || data.startsWith(':')) return null;
   try {
-    return JSON.parse(data) as InferenceStreamChunk;
+    const parsed = JSON.parse(data) as InferenceStreamChunk;
+    // The gateway may carry the event kind only in the SSE `event:` line
+    // (OpenAI-style payloads have no `type` member) — adopt it when absent.
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { type?: unknown }).type !== 'string' &&
+      eventType
+    ) {
+      (parsed as { type?: string }).type = eventType;
+    }
+    return parsed;
   } catch {
     logger.warn('capix-provider: unparseable SSE data', { data });
     return null;
   }
+}
+
+/**
+ * Usage payload shapes seen from the gateway: the canonical flat contract
+ * (`inputUnits`/`outputUnits`/`cacheUnits`) and the OpenAI-style variant
+ * (`inputTokens`/`outputTokens`, possibly nested under `usage`).
+ */
+type WildUsageEvent = {
+  inputUnits?: number;
+  outputUnits?: number;
+  cacheUnits?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  provisionalCost?: { amount: string; asset: string; scale: number };
+  usage?: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number };
+};
+
+/** Map one usage payload (capix.usage event or capix.final.finalUsage). */
+function mapUsageEvent(u: WildUsageEvent): CapixProviderChunk {
+  const nested = u.usage ?? {};
+  return {
+    type: 'usage',
+    input: u.inputUnits ?? u.inputTokens ?? nested.inputTokens ?? 0,
+    output: u.outputUnits ?? u.outputTokens ?? nested.outputTokens ?? 0,
+    cacheRead: u.cacheUnits ?? u.cacheReadTokens ?? nested.cacheReadTokens,
+    cost: u.provisionalCost,
+  };
 }
 
 /** Map a contract chunk onto the provider chunk shape the engine consumes. */
@@ -336,14 +381,7 @@ function mapChunk(chunk: InferenceStreamChunk): CapixProviderChunk {
       };
     }
     case 'capix.usage': {
-      const u = chunk as CapixUsageEvent;
-      return {
-        type: 'usage',
-        input: u.inputUnits,
-        output: u.outputUnits,
-        cacheRead: u.cacheUnits,
-        cost: u.provisionalCost,
-      };
+      return mapUsageEvent(chunk as CapixUsageEvent);
     }
     case 'capix.final': {
       const f = chunk as CapixFinalEvent;
@@ -438,6 +476,8 @@ export async function* stream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let lastEventType: string | undefined;
+  let usageSeen = false;
 
   try {
     while (true) {
@@ -453,12 +493,27 @@ export async function* stream(
         const rawLine = buffer.slice(0, nlIndex);
         buffer = buffer.slice(nlIndex + 1);
         const line = rawLine.replace(/\r$/, '');
+        if (line.startsWith('event:')) {
+          lastEventType = line.slice(6).trim();
+          continue;
+        }
         if (!line.startsWith('data:')) continue;
         const data = line.slice(5).trim();
         if (data === '[DONE]') return;
-        const chunk = parseSseChunk(data);
+        const chunk = parseSseChunk(data, lastEventType);
         if (!chunk) continue;
+        // capix.final carries authoritative totals in finalUsage; emit them
+        // when the stream never sent a standalone capix.usage event so the
+        // engine still renders real token/cost figures.
+        if (chunk.type === 'capix.final' && !usageSeen) {
+          const finalUsage = (chunk as CapixFinalEvent).finalUsage;
+          if (finalUsage) {
+            usageSeen = true;
+            yield mapUsageEvent(finalUsage);
+          }
+        }
         const mapped = mapChunk(chunk);
+        if (mapped.type === 'usage') usageSeen = true;
         if (mapped.type === 'text' || mapped.type === 'tool' || mapped.type === 'reasoning') {
           firstOutputSeen = true;
         }

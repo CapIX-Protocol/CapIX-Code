@@ -926,6 +926,8 @@ The server streams Server-Sent Events. Each `data:` line is parsed as JSON and m
 
 The stream terminates on `finish` or `error` chunks, or on the `[DONE]` sentinel.
 
+Payloads whose kind is carried only by the SSE `event:` line (OpenAI-style payloads have no `type` member) adopt the `event:` value. Usage is read tolerantly: the canonical flat fields (`inputUnits`/`outputUnits`/`cacheUnits`) and the gateway's `inputTokens`/`outputTokens` variant (optionally nested under `usage`) both map onto the `usage` chunk. When no `capix.usage` event arrives, the authoritative `capix.final.finalUsage` totals are emitted instead — never both, so accumulators never double-count.
+
 ### 10.4 Error handling and 401 refresh
 
 `classifyHttpError(res)` maps non-2xx responses:
@@ -935,9 +937,11 @@ The stream terminates on `finish` or `error` chunks, or on the `[DONE]` sentinel
 | **401** | `HTTP_401` or body `capixCode` | `retry` | Refresh-once: calls `broker.refreshToken()`, gets a fresh access token, retries the request. Only refreshes **once**. |
 | **402** | HTTP_402 | `none` | Funds — surface top-up UI; not retryable in-band |
 | **409** | HTTP_409 | `none` | Duplicate / in-flight — do not retry |
-| **429** | HTTP_429 | `retry-after` | Retry after `Retry-After` header (parsed to ms) |
-| **500+** | HTTP_5xx | `retry` | Server error — retryable |
-| Other | HTTP_`status` | `none` | Not retryable |
+| **429** | HTTP_429 | `retry-after` | Retry after `Retry-After` header (parsed to ms), falling back to the body's `retryAfterSeconds` |
+| **500+** | HTTP_5xx | body `retryClass` or `retry` | Server error — the server's own `retryClass`/`retryAfterSeconds` win when present; otherwise retryable |
+| Other | HTTP_`status` | body `retryClass` or `none` | Not retryable unless the server says so |
+
+`supportId` falls back to the problem-detail `traceId` when no explicit `supportId` is sent — `traceId` is the support handle on every error.
 
 The stream tracks `firstOutputSeen` — text/tool/reasoning deltas set this flag. Fallback (retry on 5xx) happens **only before** first customer-visible output.
 

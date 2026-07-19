@@ -30,6 +30,7 @@
 import { CredentialBroker } from './broker.js';
 import { logger } from './logger.js';
 import { CapixHttpError } from './capix-provider.js';
+import packageJson from '../package.json' with { type: 'json' };
 
 /** Production API origin for the routing service. */
 export const CAPIX_ROUTING_BASE = 'https://www.capix.network/api/v1';
@@ -464,8 +465,8 @@ function meta(): RoutingClientMeta {
   if (!metaAccessor) {
     return {
       client: 'capix-code',
-      clientVersion: '2.2.5',
-      pluginVersion: '2.2.5',
+      clientVersion: packageJson.version,
+      pluginVersion: packageJson.version,
       releaseId: 'dev',
     };
   }
