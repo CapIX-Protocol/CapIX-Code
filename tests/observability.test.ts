@@ -41,14 +41,17 @@ import {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 let workDir: string;
+const openRuntimes: CapixAgentRuntime[] = [];
 
 function makeRuntime(invoker: ModelInvoker, dbPath = ':memory:'): CapixAgentRuntime {
-  return new CapixAgentRuntime({
+  const runtime = new CapixAgentRuntime({
     dbPath,
     workspaceRoot: workDir,
     modelInvoker: invoker,
     autoApprove: true,
   });
+  openRuntimes.push(runtime);
+  return runtime;
 }
 
 /** An invoker that plays back one chunk list per model round. */
@@ -106,6 +109,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Close SQLite handles before deleting the workspace — Windows cannot
+  // unlink an open database file (EBUSY).
+  while (openRuntimes.length) openRuntimes.pop()!.close();
   rmSync(workDir, { recursive: true, force: true });
 });
 

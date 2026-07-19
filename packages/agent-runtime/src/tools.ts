@@ -78,9 +78,14 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
 function runShell(command: string, cwd: string, timeoutMs: number): Promise<ToolResult> {
   return new Promise((resolvePromise) => {
+    // Windows has no /bin/bash; use the system command interpreter there.
+    const [shell, shellArgs] =
+      process.platform === 'win32'
+        ? [process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command]]
+        : ['/bin/bash', ['-c', command]];
     execFile(
-      '/bin/bash',
-      ['-c', command],
+      shell,
+      shellArgs,
       { cwd, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) {
