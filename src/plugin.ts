@@ -111,6 +111,7 @@ import { sessionStatus } from './tui/index.js';
 import { orchestrationPanel } from './tui/orchestration-panel.js';
 import { intelligenceContext } from './tui/intelligence-context.js';
 import { McpSupervisor } from './mcp-supervisor.js';
+import { InlineCompletionSession } from './completion/inline-completion.js';
 import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 import {
   CapixAgentRuntime,
@@ -1259,6 +1260,45 @@ export const plugin: Plugin = async (
     },
   });
 
+  // ── Inline completion tool ───────────────────────────────────────────
+  // The completion engine is invocable explicitly by the agent and by users
+  // (full ghost-text TUI rendering wires into the OpenCode keymap layer in a
+  // later round). Sessions are per-file and cached by path.
+  const completionSessions = new Map<string, InlineCompletionSession>();
+  const capixComplete = tool({
+    description:
+      'Inline code completion: get a smart completion for a file at a cursor ' +
+      'position. Uses the cheapest code-capable model from the managed catalog ' +
+      'via the smart router. Provide the file content and cursor position.',
+    args: {
+      filePath: z.string().describe('Path of the file being edited.'),
+      content: z.string().describe('Current file content.'),
+      cursorOffset: z.number().describe('Cursor position as a character offset into content.'),
+    },
+    async execute(args) {
+      let session = completionSessions.get(args.filePath);
+      if (!session) {
+        session = new InlineCompletionSession({ meta });
+        completionSessions.set(args.filePath, session);
+      }
+      await session.update({
+        filePath: args.filePath,
+        content: args.content,
+        cursorOffset: args.cursorOffset,
+        projectSnippets: [],
+      });
+      const suggestion = session.getCurrent();
+      if (!suggestion) {
+        return { title: 'capix_complete', output: 'No completion available for this position.' };
+      }
+      return {
+        title: `capix_complete (${suggestion.model})`,
+        output: suggestion.text,
+        metadata: { model: suggestion.model, fromCache: suggestion.fromCache },
+      };
+    },
+  });
+
   const capixMvpArchitect = tool({
     description:
       'MVP architect: turn a product idea into a deployable MVP plan — ' +
@@ -1444,6 +1484,7 @@ export const plugin: Plugin = async (
       capix_architect: capixArchitect,
       capix_deploy: capixDeploy,
       capix_train: capixTrain,
+      capix_complete: capixComplete,
       ...adaptRuntimeTools(createSandpitTools(sandpit)),
       ...adaptRuntimeTools(createModelTools(privateModelManager)),
       capix_mvp_architect: capixMvpArchitect,
