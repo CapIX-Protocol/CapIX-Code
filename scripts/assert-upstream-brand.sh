@@ -10,6 +10,11 @@ SURFACES=(
   packages/tui/src/util/presentation.ts
   packages/tui/src/routes/session/sidebar.tsx
   packages/tui/src/routes/session/footer.tsx
+  packages/tui/src/routes/session/permission.tsx
+  packages/tui/src/feature-plugins/sidebar/footer.tsx
+  packages/tui/src/util/error.ts
+  packages/tui/src/component/error-component.tsx
+  packages/tui/src/attention.ts
   packages/capix-code/src/cli/ui.ts
   packages/capix-code/src/index.ts
   packages/capix-code/src/cli/error.ts
@@ -36,10 +41,14 @@ for file in "${SURFACES[@]}"; do
     exit 1
   fi
 done
-if grep -Eq '<span>Open</span>|<span>Code</span>' "$ROOT/packages/tui/src/routes/session/sidebar.tsx"; then
-  echo "✗ split predecessor wordmark remains in the interactive TUI footer"
-  exit 1
-fi
+for sidebar in \
+  "$ROOT/packages/tui/src/routes/session/sidebar.tsx" \
+  "$ROOT/packages/tui/src/feature-plugins/sidebar/footer.tsx"; do
+  if grep -Eq '<b>Open</b>|<b>Code</b>|<span>Open</span>|<span>Code</span>' "$sidebar"; then
+    echo "✗ split predecessor wordmark remains in the interactive TUI footer: $sidebar"
+    exit 1
+  fi
+done
 grep -Fq 'CAPIX CODE' "$ROOT/packages/capix-code/src/cli/ui.ts" || {
   echo "✗ Capix Code startup wordmark is missing"
   exit 1

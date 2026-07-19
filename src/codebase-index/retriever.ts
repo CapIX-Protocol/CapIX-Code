@@ -454,7 +454,7 @@ export class ContextRetriever {
       if (deps['prisma']) out.push('Prisma');
       if (deps['drizzle-orm']) out.push('Drizzle');
       if (deps['telegram'] || deps['discord.js']) out.push('bot');
-      if (deps['@opencode-ai/plugin']) out.push('OpenCode plugin');
+      if (deps['@opencode-ai/plugin']) out.push('Capix Code plugin');
     }
     if (this.fileExists(resolve(root, 'Cargo.toml'))) out.push('Rust');
     if (this.fileExists(resolve(root, 'pyproject.toml')) || this.fileExists(resolve(root, 'requirements.txt'))) {

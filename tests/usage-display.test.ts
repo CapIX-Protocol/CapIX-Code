@@ -95,6 +95,92 @@ describe('P0 token/cost display — SSE usage capture', () => {
       cost: undefined,
     });
   });
+
+  it('parses the gateway OpenAI-style usage shape (nested usage, type from the event line)', async () => {
+    // The production gateway documents capix.usage as
+    // {"usage":{"inputTokens":…,"outputTokens":…}} with the kind carried only
+    // by the SSE `event:` line — no `type` member in the payload.
+    const sse = [
+      'event: capix.route',
+      'data: {"receiptId":"rcpt_2","region":"us-east","trustTier":"verified"}',
+      '',
+      'event: content.delta',
+      'data: {"type":"content.delta","content":"hello"}',
+      '',
+      'event: capix.usage',
+      'data: {"usage":{"inputTokens":11,"outputTokens":6},"receiptId":"rcpt_2"}',
+      '',
+      'event: capix.final',
+      'data: {"type":"capix.final","finishReason":"stop","finalUsage":{"inputUnits":11,"outputUnits":6},"receiptId":"rcpt_2"}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+        )
+    );
+
+    const chunks = [];
+    for await (const chunk of stream(
+      { model: 'capix/auto', messages: [{ role: 'user', content: 'hello' }] },
+      META
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual(expect.objectContaining({ type: 'route', receiptId: 'rcpt_2' }));
+    expect(chunks).toContainEqual({
+      type: 'usage',
+      input: 11,
+      output: 6,
+      cacheRead: undefined,
+      cost: undefined,
+    });
+    // The usage event must be emitted exactly once — capix.final.finalUsage
+    // must not double-count when a capix.usage event already arrived.
+    expect(chunks.filter((c) => c.type === 'usage')).toHaveLength(1);
+  });
+
+  it('falls back to capix.final.finalUsage when no capix.usage event was streamed', async () => {
+    const sse = [
+      'data: {"type":"content.delta","content":"hello"}',
+      '',
+      'data: {"type":"capix.final","finishReason":"stop","finalUsage":{"inputUnits":120,"outputUnits":34,"provisionalCost":{"amount":"1299","asset":"USD","scale":2}},"receiptId":"rcpt_3"}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+        )
+    );
+
+    const chunks = [];
+    for await (const chunk of stream(
+      { model: 'capix/auto', messages: [{ role: 'user', content: 'hello' }] },
+      META
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toContainEqual({
+      type: 'usage',
+      input: 120,
+      output: 34,
+      cacheRead: undefined,
+      cost: { amount: '1299', asset: 'USD', scale: 2 },
+    });
+    expect(chunks.at(-1)).toMatchObject({ type: 'finish', receiptId: 'rcpt_3' });
+  });
 });
 
 describe('P0 token/cost display — session status store', () => {

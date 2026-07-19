@@ -139,6 +139,10 @@ PRESENTATION_FILES=(
   packages/tui/src/feature-plugins/sidebar/footer.tsx
   packages/tui/src/feature-plugins/home/footer.tsx
   packages/tui/src/feature-plugins/home/tips-view.tsx
+  packages/tui/src/routes/session/permission.tsx
+  packages/tui/src/util/error.ts
+  packages/tui/src/component/error-component.tsx
+  packages/tui/src/attention.ts
   packages/tui/src/keymap.tsx
   packages/capix-code/src/cli/ui.ts
   packages/capix-code/src/index.ts
@@ -224,6 +228,18 @@ for relative in "${PRESENTATION_FILES[@]}"; do
     s/opencode\.ai\/config\.json/capix.network\/config.json/g;
     s/opencode status/capix-code status/g;
     s/opencode debug/capix-code debug/g;
+    s/opencode auth list/capix-code auth list/g;
+    s/opencode agent create/capix-code agent create/g;
+    s/opencode github install/capix-code github install/g;
+    s/{highlight}\/opencode fix this{\/highlight}/{highlight}\/capix fix this{\/highlight}/g;
+    s/{highlight}\/opencode{\/highlight}/{highlight}\/capix{\/highlight}/g;
+    s/ghcr\.io\/anomalyco\/opencode/ghcr.io\/capix-protocol\/capix-code/g;
+    s/opencode crashed/Capix Code crashed/g;
+    s/The opencode TUI/The Capix Code TUI/g;
+    s/the opencode TUI/the Capix Code TUI/g;
+    s/the opencode crash screen/the Capix Code crash screen/g;
+    s/>opencode \{InstallationVersion\}/>Capix Code {InstallationVersion}/g;
+    s/DEFAULT_TITLE = "opencode"/DEFAULT_TITLE = "capix-code"/g;
     s/opencode\.mode/capix-code.mode/g;
     s/You are opencode/You are Capix Code/g;
     s/You are OpenCode/You are Capix Code/g;
@@ -240,18 +256,22 @@ for relative in "${PRESENTATION_FILES[@]}"; do
     s/OpenCode feature/Capix Code feature/g;
     s/opncd\.ai/capix.network/g;
     s|github.com/anomalyco/opencode|capix.network|g;
+    s|github.com/anomalyco/capix-code|capix.network|g;
   ' "$file"
   rm -f "$file.bak"
 done
 echo "  ✓ terminal title, splash, logo and customer command copy replaced"
 
 # 6c. Fix split-span: <b>Open</b><b>Code</b> → <b>Capix Code</b>
+# The sidebar footers wrap <b>Code</b> in an extra <span style={…}> — collapse
+# that variant first, then the bare adjacent-tag variant.
 for file in \
   "$CAPIX_CODE_DIR/packages/tui/src/routes/session/sidebar.tsx" \
   "$CAPIX_CODE_DIR/packages/tui/src/feature-plugins/sidebar/footer.tsx" \
   "$CAPIX_CODE_DIR/packages/tui/src/feature-plugins/home/footer.tsx" \
   "$CAPIX_CODE_DIR/packages/tui/src/feature-plugins/home/tips-view.tsx"; do
   if [ -f "$file" ]; then
+    perl -0pi.bak -e 's/<b>Open<\/b>\s*<span[^>]*>\s*<b>Code<\/b>\s*<\/span>/<b>Capix Code<\/b>/gs' "$file"
     perl -0pi.bak -e 's/<b>Open<\/b>\s*\n\s*<b>Code<\/b>/<b>Capix Code<\/b>/gs' "$file"
     perl -0pi.bak -e 's/OpenCode/Capix Code/g' "$file"
     rm -f "$file.bak"

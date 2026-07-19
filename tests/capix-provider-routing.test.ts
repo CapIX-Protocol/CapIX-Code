@@ -126,4 +126,54 @@ describe('canonical Capix routing', () => {
       retryClass: 'retry',
     });
   });
+
+  it('surfaces traceId and honors the server retry classification on problem details', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            type: 'https://capix.network/errors/capacity',
+            title: 'Capacity unavailable',
+            detail: 'No candidate passed the hard filter.',
+            status: 503,
+            capixCode: 'CAPIX_CAPACITY_UNAVAILABLE',
+            traceId: '01J4ZA1C4XJ2M3N4P5Q6R7S8T9',
+            retryClass: 'retry-after',
+            retryAfterSeconds: 30,
+          }),
+          {
+            status: 503,
+            headers: { 'content-type': 'application/problem+json' },
+          }
+        )
+      )
+    );
+
+    const consume = async () => {
+      for await (const _chunk of stream(
+        { model: 'capix/auto', messages: [{ role: 'user', content: 'hello' }] },
+        {
+          meta: {
+            client: 'capix-code',
+            clientVersion: '2.2.5',
+            releaseId: 'test',
+            pluginVersion: '2.2.5',
+            acpVersion: '1',
+          },
+        }
+      )) {
+        // The request must fail before yielding customer-visible output.
+      }
+    };
+
+    await expect(consume()).rejects.toMatchObject({
+      status: 503,
+      capixCode: 'CAPIX_CAPACITY_UNAVAILABLE',
+      message: 'No candidate passed the hard filter.',
+      supportId: '01J4ZA1C4XJ2M3N4P5Q6R7S8T9',
+      retryClass: 'retry-after',
+      retryAfterMs: 30_000,
+    });
+  });
 });
