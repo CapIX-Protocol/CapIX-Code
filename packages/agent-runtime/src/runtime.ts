@@ -52,7 +52,7 @@ import {
   type AgentMode,
   type PermissionDecision,
 } from './modes.js';
-import { getSpecialist, listSpecialists, type SpecialistAgent } from './specialists.js';
+import { getSpecialist, listSpecialists, qualityTierFromModelId, type SpecialistAgent, type SpecialistQualityTier } from './specialists.js';
 import {
   createBuiltinTools,
   resolveWorkspacePath,
@@ -80,6 +80,12 @@ export interface ModelRequest {
   modelId: string;
   mode: AgentMode;
   specialist?: SpecialistAgent;
+  /**
+   * Quality tier for this call: the specialist's own model preference when
+   * the request is for a specialist child session, otherwise the runtime
+   * default. Hosts forward it as `X-Capix-Quality-Tier`.
+   */
+  qualityTier?: SpecialistQualityTier;
   messages: Array<{ role: string; content: string }>;
   signal?: AbortSignal;
 }
@@ -92,6 +98,14 @@ export type ModelChunk =
 
 export type ModelInvoker = (req: ModelRequest) => AsyncIterable<ModelChunk>;
 
+/**
+ * Verdict returned by an `autoApprove` policy function. `true` approves; an
+ * object decides immediately in either direction — `approved: false` is a
+ * typed skip (the tool call is rejected with `reason`, which lands in the
+ * transcript) rather than a wait for a human that will never come.
+ */
+export type AutoApprovalVerdict = boolean | { approved: boolean; reason?: string };
+
 export interface RuntimeOptions {
   /** SQLite path; ':memory:' for tests. Defaults to ~/.capix-code/agent-runtime.db. */
   dbPath?: string;
@@ -100,7 +114,9 @@ export interface RuntimeOptions {
   /** Broker-backed model stream. Without one, turns fail with provider_error. */
   modelInvoker?: ModelInvoker;
   /** Approve tool calls without operator input (tests, trusted hosts). */
-  autoApprove?: boolean | ((toolName: string, args: Record<string, unknown>) => boolean);
+  autoApprove?: boolean | ((toolName: string, args: Record<string, unknown>) => AutoApprovalVerdict);
+  /** Default quality tier for model calls without a specialist preference. */
+  qualityTier?: SpecialistQualityTier;
   /** Max model↔tool rounds per turn. */
   maxToolRounds?: number;
 }
@@ -133,6 +149,7 @@ export class CapixAgentRuntime implements AgentRuntime {
   private readonly store: RuntimeStore;
   private readonly modelInvoker?: ModelInvoker;
   private readonly autoApprove: RuntimeOptions['autoApprove'];
+  private readonly qualityTier?: SpecialistQualityTier;
   private readonly maxToolRounds: number;
   private readonly defaultWorkspaceRoot: string;
 
@@ -154,6 +171,7 @@ export class CapixAgentRuntime implements AgentRuntime {
     for (const tool of createBuiltinTools()) this.tools.register(tool);
     this.modelInvoker = options.modelInvoker;
     this.autoApprove = options.autoApprove;
+    this.qualityTier = options.qualityTier;
     this.maxToolRounds = options.maxToolRounds ?? DEFAULT_MAX_TOOL_ROUNDS;
     this.defaultWorkspaceRoot = options.workspaceRoot ?? process.cwd();
   }
@@ -333,6 +351,11 @@ export class CapixAgentRuntime implements AgentRuntime {
           modelId,
           mode,
           specialist: specialist ?? undefined,
+          // Specialist child sessions route at their own model's tier; plain
+          // sessions use the runtime default (host falls back to balanced).
+          qualityTier:
+            (specialist ? qualityTierFromModelId(specialist.model) : undefined) ??
+            this.qualityTier,
           messages: conversation,
           signal: controller.signal,
         })) {
@@ -675,8 +698,18 @@ export class CapixAgentRuntime implements AgentRuntime {
     signal: AbortSignal
   ): Promise<{ ok: boolean; reason?: string }> {
     if (this.autoApprove === true) return Promise.resolve({ ok: true });
-    if (typeof this.autoApprove === 'function' && this.autoApprove(toolName, args)) {
-      return Promise.resolve({ ok: true });
+    if (typeof this.autoApprove === 'function') {
+      const verdict = this.autoApprove(toolName, args);
+      if (verdict === true) return Promise.resolve({ ok: true });
+      // A policy object decides immediately in both directions; a denial is a
+      // typed skip (recorded with its reason), never a silent approval and
+      // never a wait for a human.
+      if (typeof verdict === 'object' && verdict !== null) {
+        return Promise.resolve({
+          ok: verdict.approved,
+          reason: verdict.approved ? undefined : (verdict.reason ?? 'denied by policy'),
+        });
+      }
     }
     if (signal.aborted) return Promise.resolve({ ok: false, reason: 'turn cancelled' });
 

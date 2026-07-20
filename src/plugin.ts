@@ -39,6 +39,7 @@ import {
   capixAuthLoader,
   CAPIX_INFERENCE_BASE,
   stream as capixStream,
+  readQualityTier,
   type CapixClientMeta,
 } from './capix-provider.js';
 import { CredentialBroker } from './broker.js';
@@ -115,12 +116,20 @@ import { SkillsRuntime, BUILTIN_SKILLS } from './skills/index.js';
 import {
   CapixAgentRuntime,
   checkModePermission,
+  createAutoApprovalPolicy,
   isAgentMode,
+  qualityTierFromModelId,
+  canonicalGatewayModelId,
   type AgentMode,
   type ModelChunk as RuntimeModelChunk,
   type ModelInvoker as RuntimeModelInvoker,
   type ToolRiskClass,
 } from '@capix/agent-runtime';
+
+/** True when the launcher started this process via `capix-code run --auto`. */
+export function isAutonomousMode(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CAPIX_AUTONOMOUS === '1';
+}
 
 export const CAPIX_PLUGIN_VERSION = '2.3.2';
 export const CAPIX_ACP_VERSION = '1';
@@ -229,6 +238,9 @@ function getAgentRuntime(meta: CapixClientMeta, workspaceRoot: string): CapixAge
       dbPath: process.env.CAPIX_AGENT_RUNTIME_DB,
       workspaceRoot,
       modelInvoker: createRuntimeModelInvoker(meta),
+      // Autonomous runs decide every approval by policy — no waiter, ever.
+      autoApprove: isAutonomousMode() ? createAutoApprovalPolicy() : undefined,
+      qualityTier: isAutonomousMode() ? readQualityTier() : undefined,
     });
   }
   return runtimeInstance;
@@ -264,16 +276,28 @@ function engineToolRiskClass(toolName: string): ToolRiskClass {
 /**
  * Bridge the broker-backed capix stream into the runtime's ModelInvoker
  * shape, so runtime-driven turns (e.g. specialist child sessions over ACP)
- * use the same server-authoritative route as the engine.
+ * use the same server-authoritative route as the engine. Exported for the
+ * autonomous driver (`auto-run.ts`), which runs the same wiring.
  */
-function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelInvoker {
+export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelInvoker {
   return async function* (req) {
     const stream = capixStream(
       {
-        model: req.modelId,
+        // Tier-suffixed logical ids (capix/auto-best etc.) collapse to the
+        // canonical gateway target; the tier travels on the header instead.
+        model: canonicalGatewayModelId(req.modelId),
         messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
       },
-      { meta, signal: req.signal }
+      {
+        meta,
+        signal: req.signal,
+        // Specialist sessions carry their role's tier; the provider falls
+        // back to CAPIX_QUALITY_TIER / balanced otherwise.
+        qualityTier: req.qualityTier ?? qualityTierFromModelId(req.modelId),
+        // Router has no task-class field today; the role is sent as
+        // X-Capix-Agent-Class request metadata.
+        agentClass: req.specialist?.role,
+      }
     );
     for await (const chunk of stream) {
       if (chunk.type === 'text') {
@@ -1770,6 +1794,41 @@ export const plugin: Plugin = async (
     // ── Permission: enforce sandbox profile on file/network actions ──────
     'permission.ask': async (perm: Permission, out: PermissionResult) => {
       const action = 'action' in perm ? (perm as { action: string }).action : '';
+      if (isAutonomousMode()) {
+        // Autonomous runs have no operator: every engine-level permission is
+        // decided here, mirroring the agent-runtime sandbox policy. Denials
+        // are typed skips — the engine records them in the transcript.
+        const autoPolicy = createAutoApprovalPolicy();
+        if (action === 'webfetch' || action === 'websearch') {
+          out.status = 'deny';
+          return;
+        }
+        if (action === 'bash' || action === 'task') {
+          const command =
+            'command' in perm ? String((perm as { command?: unknown }).command ?? '') : '';
+          const verdict = autoPolicy('bash', { command });
+          out.status = verdict === true || (typeof verdict === 'object' && verdict.approved)
+            ? 'allow'
+            : 'deny';
+          return;
+        }
+        if (action === 'edit' || action === 'write' || action === 'patch') {
+          const patterns =
+            'patterns' in perm ? (perm as { patterns?: string[] }).patterns : undefined;
+          out.status = patterns?.some((p) => sandbox.isSecretPath(p)) ? 'deny' : 'allow';
+          return;
+        }
+        if (action === 'read') {
+          const patterns =
+            'patterns' in perm ? (perm as { patterns?: string[] }).patterns : undefined;
+          out.status = patterns?.some((p) => sandbox.isSecretPath(p)) ? 'deny' : 'allow';
+          return;
+        }
+        // Anything else (billing verbs, unknown actions) is skipped, never
+        // approved silently and never left waiting on a human.
+        out.status = 'deny';
+        return;
+      }
       if (sandbox.profile === 'restricted') {
         // Restricted default: deny network, ask for edits, deny secret paths.
         if (action === 'webfetch' || action === 'websearch') {

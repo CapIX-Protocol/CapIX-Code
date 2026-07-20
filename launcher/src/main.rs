@@ -29,7 +29,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    Run,
+    /// Launch the engine (default). With --auto, run a fully non-interactive
+    /// autonomous task for A2A task machines.
+    Run {
+        /// Fully non-interactive autonomous run: all tool approvals are
+        /// auto-accepted within a bounded sandbox; anything requiring a human
+        /// becomes a typed skip in the transcript. Ends with a machine-readable
+        /// CAPIX_RUN_RESULT JSON line.
+        #[arg(long)]
+        auto: bool,
+        /// Smart-router quality tier sent as X-Capix-Quality-Tier on every
+        /// inference call (fast|balanced|best).
+        #[arg(long, value_parser = ["fast", "balanced", "best"], default_value = "balanced")]
+        tier: String,
+        /// Hard spend budget for the whole run, in USD (e.g. 5 or 2.50).
+        /// Accounting uses integer micro-USD minor units from the receipt
+        /// stream; the run stops cleanly with status spend_cap_reached at 100%.
+        #[arg(long)]
+        spend_cap: Option<String>,
+        /// Task brief. Required with --auto.
+        brief: Vec<String>,
+    },
     RunAgent,
     /// Run remote inference through the Capix compute network
     LlmRun {
@@ -317,7 +337,96 @@ fn release_id() -> String {
     std::env::var("CAPIX_RELEASE_ID").unwrap_or_else(|_| "capix-code-2.3.2".to_string())
 }
 
-fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
+/// Configuration for `capix-code run` produced by the CLI surface.
+///
+/// `tier` is always set (default balanced) and exported as
+/// `CAPIX_QUALITY_TIER` so the provider layer stamps `X-Capix-Quality-Tier`
+/// on every inference call. `auto` switches the engine invocation to the
+/// bundled autonomous driver (`runtime/src/auto-run.ts`), which enforces the
+/// approval sandbox and the spend cap and prints the machine-readable result
+/// line.
+struct RunConfig {
+    auto: bool,
+    tier: String,
+    brief: String,
+    /// USD spend cap converted to integer micro-USD minor units (scale 6).
+    spend_cap_minor: Option<String>,
+}
+
+impl RunConfig {
+    /// Plain engine launch (TUI or passthrough) with the default tier.
+    fn default_interactive() -> Self {
+        RunConfig {
+            auto: false,
+            tier: "balanced".to_string(),
+            brief: String::new(),
+            spend_cap_minor: None,
+        }
+    }
+
+    /// The subcommand used when `capix-code` is invoked with no subcommand.
+    fn default_command() -> Command {
+        Command::Run {
+            auto: false,
+            tier: "balanced".to_string(),
+            spend_cap: None,
+            brief: Vec::new(),
+        }
+    }
+}
+
+/// Convert a decimal USD amount ("5", "2.50", "0.000001") to integer
+/// micro-USD minor units (scale 6) as a decimal string. Rejects anything
+/// that is not a non-negative decimal with at most 6 fractional digits —
+/// spend-cap accounting must never round a customer's budget.
+fn parse_spend_cap_minor(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("spend cap must be a non-negative USD amount".into());
+    }
+    if trimmed.starts_with('-') || trimmed.starts_with('+') {
+        return Err(format!("spend cap must be a plain non-negative decimal: {raw}"));
+    }
+    let (dollars, fraction) = match trimmed.split_once('.') {
+        Some((d, f)) => (d, f),
+        None => (trimmed, ""),
+    };
+    if dollars.is_empty() && fraction.is_empty() {
+        return Err(format!("invalid spend cap: {raw}"));
+    }
+    if !dollars.chars().all(|c| c.is_ascii_digit())
+        || !fraction.chars().all(|c| c.is_ascii_digit())
+    {
+        return Err(format!("invalid spend cap: {raw}"));
+    }
+    if fraction.len() > 6 {
+        return Err(format!(
+            "spend cap supports at most 6 fractional digits (micro-USD): {raw}"
+        ));
+    }
+    let dollars = if dollars.is_empty() { "0" } else { dollars };
+    let whole: u128 = dollars
+        .parse()
+        .map_err(|_| format!("invalid spend cap: {raw}"))?;
+    let frac_padded = format!("{fraction:0<6}");
+    let frac: u128 = if frac_padded.is_empty() {
+        0
+    } else {
+        frac_padded
+            .parse()
+            .map_err(|_| format!("invalid spend cap: {raw}"))?
+    };
+    let minor = whole
+        .checked_mul(1_000_000)
+        .and_then(|w| w.checked_add(frac))
+        .ok_or_else(|| format!("spend cap too large: {raw}"))?;
+    if minor > u64::MAX as u128 {
+        return Err(format!("spend cap too large: {raw}"));
+    }
+    Ok(minor.to_string())
+}
+
+fn run_engine(root: &Path, args: &[String], run: RunConfig) -> Result<ExitCode, String> {
     let engine = engine_path(root);
     if !engine.is_file() {
         return Err(format!("bundled engine missing: {}", engine.display()));
@@ -465,8 +574,30 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
         "Capix connected · USDC balance {} · model Capix Auto",
         available
     );
+    let engine_args: Vec<String> = if run.auto {
+        // Autonomous mode: instead of the interactive engine entrypoint, eval
+        // the bundled autonomous driver. The driver enforces the approval
+        // sandbox and the spend cap and prints the machine-readable
+        // CAPIX_RUN_RESULT line; the brief travels via the environment so no
+        // shell quoting is involved.
+        let auto_entry = runtime_dir.join("src/auto-run.ts");
+        vec![
+            "--eval".to_string(),
+            format!(
+                "import('{}').then(m=>m.autoRunMain())",
+                auto_entry.display()
+            ),
+        ]
+    } else if !run.brief.is_empty() {
+        // Non-interactive engine run with the engine's own approval flow.
+        let mut a = vec!["run".to_string(), run.brief.clone()];
+        a.extend(args.iter().cloned());
+        a
+    } else {
+        args.to_vec()
+    };
     command
-        .args(args)
+        .args(&engine_args)
         .env("CAPIX_CODE_BUNDLED_RUNTIME", &runtime_dir)
         .env("CAPIX_CODE_PLUGIN", runtime_dir.join("src/plugin.ts"))
         .env(
@@ -482,8 +613,17 @@ fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
             "https://www.capix.network/api/v1",
         )
         .env("CAPIX_API_KEY", access)
+        .env("CAPIX_QUALITY_TIER", &run.tier)
         .env("CAPIX_RELEASE_ID", release_id())
         .env("CAPIX_CODE_RELEASE_ID", release_id());
+    if run.auto {
+        command
+            .env("CAPIX_AUTONOMOUS", "1")
+            .env("CAPIX_AUTONOMOUS_BRIEF", &run.brief);
+        if let Some(minor) = &run.spend_cap_minor {
+            command.env("CAPIX_SPEND_CAP_USD_MINOR", minor);
+        }
+    }
     let status = command
         .status()
         .map_err(|e| format!("failed to launch engine: {e}"))?;
@@ -2145,7 +2285,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let result = match cli.command.unwrap_or(Command::Run) {
+    let result = match cli.command.unwrap_or_else(RunConfig::default_command) {
         Command::Doctor => doctor(&root).map(|_| ExitCode::SUCCESS),
         Command::Login => login(),
         Command::Logout => {
@@ -2163,11 +2303,41 @@ fn main() -> ExitCode {
                 Err(e) => Err(e),
             }
         }
-        Command::Run => run_engine(&root, &cli.engine_args),
+        Command::Run {
+            auto,
+            tier,
+            spend_cap,
+            brief,
+        } => {
+            let brief_text = brief.join(" ").trim().to_string();
+            if auto && brief_text.is_empty() {
+                Err("capix-code run --auto requires a task brief".to_string())
+            } else {
+                let spend_cap_minor: Result<Option<String>, String> =
+                    match spend_cap.as_deref().map(parse_spend_cap_minor) {
+                        Some(Ok(minor)) => Ok(Some(minor)),
+                        Some(Err(e)) => Err(e),
+                        None => Ok(None),
+                    };
+                match spend_cap_minor {
+                    Err(e) => Err(e),
+                    Ok(spend_cap_minor) => run_engine(
+                        &root,
+                        &cli.engine_args,
+                        RunConfig {
+                            auto,
+                            tier,
+                            brief: brief_text,
+                            spend_cap_minor,
+                        },
+                    ),
+                }
+            }
+        }
         Command::RunAgent => {
             let mut a = vec!["run".into()];
             a.extend(cli.engine_args);
-            run_engine(&root, &a)
+            run_engine(&root, &a, RunConfig::default_interactive())
         }
         Command::Agent { subcommand } => match subcommand {
             AgentCommand::List => {
@@ -2286,5 +2456,84 @@ fn main() -> ExitCode {
             eprintln!("capix-code: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_defaults_to_interactive_balanced() {
+        let cli = Cli::try_parse_from(["capix-code", "run"]).expect("parse");
+        match cli.command.expect("subcommand") {
+            Command::Run {
+                auto,
+                tier,
+                spend_cap,
+                brief,
+            } => {
+                assert!(!auto);
+                assert_eq!(tier, "balanced");
+                assert!(spend_cap.is_none());
+                assert!(brief.is_empty());
+            }
+            _ => panic!("expected run"),
+        }
+    }
+
+    #[test]
+    fn run_auto_parses_tier_spend_cap_and_brief() {
+        let cli = Cli::try_parse_from([
+            "capix-code",
+            "run",
+            "--auto",
+            "--tier",
+            "best",
+            "--spend-cap",
+            "2.50",
+            "fix the flaky tests",
+        ])
+        .expect("parse");
+        match cli.command.expect("subcommand") {
+            Command::Run {
+                auto,
+                tier,
+                spend_cap,
+                brief,
+            } => {
+                assert!(auto);
+                assert_eq!(tier, "best");
+                assert_eq!(spend_cap.as_deref(), Some("2.50"));
+                assert_eq!(brief.join(" "), "fix the flaky tests");
+            }
+            _ => panic!("expected run"),
+        }
+    }
+
+    #[test]
+    fn run_rejects_unknown_tier() {
+        assert!(Cli::try_parse_from(["capix-code", "run", "--tier", "premium", "x"]).is_err());
+    }
+
+    #[test]
+    fn spend_cap_converts_to_micro_usd_minor_units() {
+        assert_eq!(parse_spend_cap_minor("5").unwrap(), "5000000");
+        assert_eq!(parse_spend_cap_minor("2.50").unwrap(), "2500000");
+        assert_eq!(parse_spend_cap_minor("0.000001").unwrap(), "1");
+        assert_eq!(parse_spend_cap_minor("0").unwrap(), "0");
+        assert_eq!(parse_spend_cap_minor(".25").unwrap(), "250000");
+    }
+
+    #[test]
+    fn spend_cap_rejects_unrepresentable_amounts() {
+        // More than 6 fractional digits would silently round the budget.
+        assert!(parse_spend_cap_minor("0.0000001").is_err());
+        assert!(parse_spend_cap_minor("-1").is_err());
+        assert!(parse_spend_cap_minor("abc").is_err());
+        assert!(parse_spend_cap_minor("").is_err());
+        assert!(parse_spend_cap_minor("1.2.3").is_err());
+        assert!(parse_spend_cap_minor("99999999999999").is_err());
     }
 }
