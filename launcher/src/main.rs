@@ -314,7 +314,7 @@ fn scrub_environment(command: &mut ProcessCommand) {
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
 /// 2. `capix-code-2.3.1` (package.json version baked at compile time)
 fn release_id() -> String {
-    std::env::var("CAPIX_RELEASE_ID").unwrap_or_else(|_| "capix-code-2.3.1".to_string())
+    std::env::var("CAPIX_RELEASE_ID").unwrap_or_else(|_| "capix-code-2.3.2".to_string())
 }
 
 fn run_engine(root: &Path, args: &[String]) -> Result<ExitCode, String> {
