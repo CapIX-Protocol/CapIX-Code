@@ -50,11 +50,17 @@ declare module '@capix/contracts' {
     | CapixUsageEvent
     | CapixFinalEvent
     | CapixErrorEvent;
+  export interface InferenceRequestMessage {
+    role: string;
+    content: string | null;
+    tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+    tool_call_id?: string;
+  }
   export interface InferenceRequest {
     model: string;
     preferredProvider?: 'auto' | 'openrouter' | 'surplus' | 'usepod';
     preferredModel?: string;
-    messages: Array<{ role: string; content: string }>;
+    messages: InferenceRequestMessage[];
     stream?: boolean;
     maxTokens?: number;
     temperature?: number;

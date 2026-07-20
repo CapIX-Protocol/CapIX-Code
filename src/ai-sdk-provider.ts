@@ -59,7 +59,7 @@ function textOf(value: unknown): string {
   return value
     .map((part) => {
       if (!part || typeof part !== 'object') return String(part);
-      const p = part as Record<string, unknown>;
+      const p = part as unknown as Record<string, unknown>;
       if (p.type === 'text' || p.type === 'reasoning') return String(p.text ?? '');
       if (p.type === 'tool-call') return JSON.stringify({ toolCall: p.toolName, input: p.input });
       if (p.type === 'tool-result')
@@ -96,8 +96,8 @@ export function toCapixMessages(
       const textParts: unknown[] = [];
       const toolCalls: CapixToolCall[] = [];
       for (const part of message.content) {
-        if (part && typeof part === 'object' && (part as Record<string, unknown>).type === 'tool-call') {
-          const p = part as Record<string, unknown>;
+        if (part && typeof part === 'object' && (part as unknown as Record<string, unknown>).type === 'tool-call') {
+          const p = part as unknown as Record<string, unknown>;
           toolCalls.push({
             id: String(p.toolCallId ?? p.id ?? `call_${toolCalls.length}`),
             type: 'function',
@@ -116,8 +116,8 @@ export function toCapixMessages(
     }
     if (message.role === 'tool' && Array.isArray(message.content)) {
       for (const part of message.content) {
-        if (part && typeof part === 'object' && (part as Record<string, unknown>).type === 'tool-result') {
-          const p = part as Record<string, unknown>;
+        if (part && typeof part === 'object' && (part as unknown as Record<string, unknown>).type === 'tool-result') {
+          const p = part as unknown as Record<string, unknown>;
           out.push({
             role: 'tool',
             tool_call_id: String(p.toolCallId ?? ''),
