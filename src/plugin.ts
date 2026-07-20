@@ -131,7 +131,7 @@ export function isAutonomousMode(env: NodeJS.ProcessEnv = process.env): boolean 
   return env.CAPIX_AUTONOMOUS === '1';
 }
 
-export const CAPIX_PLUGIN_VERSION = '2.3.4';
+export const CAPIX_PLUGIN_VERSION = '2.3.5';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -291,6 +291,16 @@ export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelIn
       attempt += 1;
       let emittedContent = false;
       let pendingError: { message?: string; capixCode?: string; retryAfterMs?: number } | null = null;
+      // A stalled upstream must never hang a run: each attempt gets a hard
+      // 90s timeout, merged with the caller's cancellation signal. Timeout
+      // aborts surface as transient and retry like any other lane stall.
+      const attemptController = new AbortController();
+      const attemptTimeout = setTimeout(() => attemptController.abort(new Error('attempt timed out after 90s')), 90_000);
+      const onCallerAbort = () => attemptController.abort(req.signal?.reason ?? new Error('cancelled'));
+      if (req.signal) {
+        if (req.signal.aborted) onCallerAbort();
+        else req.signal.addEventListener('abort', onCallerAbort, { once: true });
+      }
       try {
         const stream = capixStream(
           {
@@ -301,7 +311,7 @@ export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelIn
           },
           {
             meta,
-            signal: req.signal,
+            signal: attemptController.signal,
             // Specialist sessions carry their role's tier; the provider falls
             // back to CAPIX_QUALITY_TIER / balanced otherwise.
             qualityTier: req.qualityTier ?? qualityTierFromModelId(req.modelId),
@@ -334,6 +344,9 @@ export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelIn
         }
       } catch (err) {
         pendingError = { message: (err as Error).message };
+      } finally {
+        clearTimeout(attemptTimeout);
+        req.signal?.removeEventListener('abort', onCallerAbort);
       }
       if (!pendingError) return; // stream completed cleanly
       const transient = isTransientRouteError(pendingError);
