@@ -334,7 +334,7 @@ fn scrub_environment(command: &mut ProcessCommand) {
 /// 1. `CAPIX_RELEASE_ID` env var (set by packaging/CI)
 /// 2. `capix-code-2.3.1` (package.json version baked at compile time)
 fn release_id() -> String {
-    std::env::var("CAPIX_RELEASE_ID").unwrap_or_else(|_| "capix-code-2.3.3".to_string())
+    std::env::var("CAPIX_RELEASE_ID").unwrap_or_else(|_| "capix-code-2.3.4".to_string())
 }
 
 /// Configuration for `capix-code run` produced by the CLI surface.
