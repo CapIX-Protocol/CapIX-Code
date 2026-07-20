@@ -35,10 +35,23 @@ export interface CapixAiSdkProviderOptions {
 const DEFAULT_META: CapixClientMeta = {
   releaseId: 'bundled',
   client: 'capix-code',
-  clientVersion: '2.3.5',
-  pluginVersion: '2.3.5',
+  clientVersion: '2.3.6',
+  pluginVersion: '2.3.6',
   acpVersion: '1',
 };
+
+export interface CapixToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+export interface CapixMessage {
+  role: string;
+  content: string | null;
+  tool_calls?: CapixToolCall[];
+  tool_call_id?: string;
+}
 
 function textOf(value: unknown): string {
   if (typeof value === 'string') return value;
@@ -56,16 +69,78 @@ function textOf(value: unknown): string {
     .join('\n');
 }
 
+function toolResultText(part: Record<string, unknown>): string {
+  const output = part.output ?? part.result;
+  if (typeof output === 'string') return output;
+  // AI SDK v2 tool outputs may be {type:'text', value} or structured content.
+  if (output && typeof output === 'object') {
+    const o = output as Record<string, unknown>;
+    if (o.type === 'text' && typeof o.value === 'string') return o.value;
+    if (o.type === 'error-text' && typeof o.value === 'string') return o.value;
+  }
+  return JSON.stringify(output ?? null);
+}
+
+/**
+ * Map the AI SDK v2 prompt into OpenAI-valid chat messages. Assistant
+ * tool-call parts become a real `tool_calls` array and tool results become
+ * {role:'tool', tool_call_id} messages, preserving the invariant every
+ * OpenAI-compatible lane enforces (a tool message must answer a tool_call).
+ */
+export function toCapixMessages(
+  prompt: LanguageModelV2CallOptions['prompt']
+): CapixMessage[] {
+  const out: CapixMessage[] = [];
+  for (const message of prompt) {
+    if (message.role === 'assistant' && Array.isArray(message.content)) {
+      const textParts: unknown[] = [];
+      const toolCalls: CapixToolCall[] = [];
+      for (const part of message.content) {
+        if (part && typeof part === 'object' && (part as Record<string, unknown>).type === 'tool-call') {
+          const p = part as Record<string, unknown>;
+          toolCalls.push({
+            id: String(p.toolCallId ?? p.id ?? `call_${toolCalls.length}`),
+            type: 'function',
+            function: {
+              name: String(p.toolName ?? 'tool'),
+              arguments: JSON.stringify(p.input ?? p.args ?? {}),
+            },
+          });
+        } else {
+          textParts.push(part);
+        }
+      }
+      const content = textParts.length > 0 ? textOf(textParts) : null;
+      out.push(toolCalls.length > 0 ? { role: 'assistant', content, tool_calls: toolCalls } : { role: 'assistant', content: content ?? '' });
+      continue;
+    }
+    if (message.role === 'tool' && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part && typeof part === 'object' && (part as Record<string, unknown>).type === 'tool-result') {
+          const p = part as Record<string, unknown>;
+          out.push({
+            role: 'tool',
+            tool_call_id: String(p.toolCallId ?? ''),
+            content: toolResultText(p),
+          });
+        } else {
+          out.push({ role: 'user', content: textOf([part]) });
+        }
+      }
+      continue;
+    }
+    out.push({ role: message.role, content: textOf(message.content) });
+  }
+  return out;
+}
+
 export function toCapixInput(
   modelId: string,
   options: LanguageModelV2CallOptions
 ): CapixStreamInput {
   return {
     model: modelId,
-    messages: options.prompt.map((message) => ({
-      role: message.role,
-      content: textOf(message.content),
-    })),
+    messages: toCapixMessages(options.prompt),
     tools: options.tools,
   };
 }

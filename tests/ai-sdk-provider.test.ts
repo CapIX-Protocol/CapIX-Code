@@ -90,3 +90,47 @@ describe('bundled Capix AI SDK provider', () => {
     expect(result.providerMetadata).toEqual({ capix: { receiptId: 'r2', retryCount: 0 } });
   });
 });
+
+import { toCapixMessages } from '../src/ai-sdk-provider';
+
+describe('toCapixMessages — OpenAI-valid tool exchanges', () => {
+  it('maps assistant tool-call parts to a structured tool_calls array', () => {
+    const out = toCapixMessages([
+      {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'Let me write that.' },
+          { type: 'tool-call', toolCallId: 'call_1', toolName: 'write', input: { filePath: 'a.txt', content: 'x' } },
+        ],
+      } as never,
+    ]);
+    expect(out).toEqual([
+      {
+        role: 'assistant',
+        content: 'Let me write that.',
+        tool_calls: [
+          { id: 'call_1', type: 'function', function: { name: 'write', arguments: '{"filePath":"a.txt","content":"x"}' } },
+        ],
+      },
+    ]);
+  });
+
+  it('maps tool results to role:tool messages with tool_call_id', () => {
+    const out = toCapixMessages([
+      {
+        role: 'tool',
+        content: [
+          { type: 'tool-result', toolCallId: 'call_1', toolName: 'write', output: { type: 'text', value: 'done' } },
+        ],
+      } as never,
+    ]);
+    expect(out).toEqual([{ role: 'tool', tool_call_id: 'call_1', content: 'done' }]);
+  });
+
+  it('keeps plain user/system messages as strings', () => {
+    const out = toCapixMessages([
+      { role: 'user', content: [{ type: 'text', text: 'hello' }] } as never,
+    ]);
+    expect(out).toEqual([{ role: 'user', content: 'hello' }]);
+  });
+});

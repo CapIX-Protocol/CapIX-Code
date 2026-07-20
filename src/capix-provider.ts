@@ -147,10 +147,17 @@ export type CapixProviderChunk =
 /**
  * Capix stream input. The engine fills this from the active session's message
  * list; the provider does not inspect or classify message contents.
+ * Messages follow the OpenAI chat shape — assistant messages may carry
+ * structured tool_calls and tool messages carry their tool_call_id.
  */
 export interface CapixStreamInput {
   model: string;
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{
+    role: string;
+    content: string | null;
+    tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
+    tool_call_id?: string;
+  }>;
   tools?: unknown[];
 }
 

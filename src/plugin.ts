@@ -131,7 +131,7 @@ export function isAutonomousMode(env: NodeJS.ProcessEnv = process.env): boolean 
   return env.CAPIX_AUTONOMOUS === '1';
 }
 
-export const CAPIX_PLUGIN_VERSION = '2.3.5';
+export const CAPIX_PLUGIN_VERSION = '2.3.6';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -290,7 +290,7 @@ export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelIn
     for (;;) {
       attempt += 1;
       let emittedContent = false;
-      let pendingError: { message?: string; capixCode?: string; retryAfterMs?: number } | null = null;
+      let pendingError: { message?: string; capixCode?: string; retryClass?: 'none' | 'retry' | 'retry-after'; retryAfterMs?: number } | null = null;
       // A stalled upstream must never hang a run: each attempt gets a hard
       // 90s timeout, merged with the caller's cancellation signal. Timeout
       // aborts surface as transient and retry like any other lane stall.
@@ -343,7 +343,10 @@ export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelIn
           }
         }
       } catch (err) {
-        pendingError = { message: (err as Error).message };
+        const e = err as { message?: string; capixCode?: string; retryClass?: 'none' | 'retry' | 'retry-after'; retryAfterMs?: number };
+        // Preserve the gateway's retry classification — it is the server's
+        // authoritative signal (e.g. 503 ledger_unavailable retry-after).
+        pendingError = { message: e.message, capixCode: e.capixCode, retryClass: e.retryClass, retryAfterMs: e.retryAfterMs };
       } finally {
         clearTimeout(attemptTimeout);
         req.signal?.removeEventListener('abort', onCallerAbort);
@@ -360,9 +363,12 @@ export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelIn
 }
 
 /** 429/5xx/timeout and gateway retry-classified route failures are retryable. */
-function isTransientRouteError(err: { message?: string; capixCode?: string }): boolean {
+function isTransientRouteError(err: { message?: string; capixCode?: string; retryClass?: 'none' | 'retry' | 'retry-after' }): boolean {
+  // The gateway's RFC 9457 retry classification is authoritative when present.
+  if (err.retryClass === 'retry' || err.retryClass === 'retry-after') return true;
+  if (err.retryClass === 'none') return false;
   const code = err.capixCode ?? '';
-  if (code === 'provider_rate_limited' || code === 'inference_route_failed') return true;
+  if (code === 'provider_rate_limited' || code === 'inference_route_failed' || code === 'ledger_unavailable') return true;
   const msg = (err.message ?? '').toLowerCase();
   return (
     msg.includes('route temporarily unavailable') ||
