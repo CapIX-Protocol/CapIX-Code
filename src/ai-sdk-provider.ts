@@ -13,6 +13,7 @@ import {
   stream as capixStream,
   type CapixClientMeta,
   type CapixProviderChunk,
+  type CapixQualityTier,
   type CapixStreamInput,
 } from './capix-provider.js';
 
@@ -22,6 +23,10 @@ export interface CapixAiSdkProviderOptions {
   privateEndpointId?: string;
   preferredProvider?: 'auto' | 'openrouter' | 'surplus' | 'usepod';
   preferredModel?: string;
+  /** Smart-router quality tier for every call (X-Capix-Quality-Tier). */
+  qualityTier?: CapixQualityTier;
+  /** Specialist subagent role, forwarded as X-Capix-Agent-Class metadata. */
+  agentClass?: string;
   meta?: Partial<CapixClientMeta>;
   /** Test/native injection point; defaults to the strict broker-backed transport. */
   transport?: typeof capixStream;
@@ -111,6 +116,8 @@ export class CapixLanguageModel implements LanguageModelV2 {
       privateEndpointId: this.config.privateEndpointId,
       preferredProvider: this.config.preferredProvider,
       preferredModel: this.config.preferredModel,
+      qualityTier: this.config.qualityTier,
+      agentClass: this.config.agentClass,
       maxTokens: options.maxOutputTokens,
       temperature: options.temperature,
       meta: { ...DEFAULT_META, ...this.config.meta, client: 'capix-code' },

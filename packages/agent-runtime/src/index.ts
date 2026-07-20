@@ -29,4 +29,5 @@ export * from './diff.js';
 export * from './receipts.js';
 export * from './store.js';
 export * from './runtime.js';
+export * from './auto.js';
 export * from './transport.js';

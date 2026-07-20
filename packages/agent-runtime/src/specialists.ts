@@ -156,6 +156,32 @@ export function getSpecialist(role: string): SpecialistAgent | null {
   return SPECIALIST_AGENTS[role] ?? null;
 }
 
+/** Smart-router quality tiers (the `X-Capix-Quality-Tier` contract). */
+export type SpecialistQualityTier = 'fast' | 'balanced' | 'best';
+
+/**
+ * Map a specialist's logical model id (`capix/auto-fast`, `capix/auto-best`,
+ * `capix/auto-balanced`) to the router quality tier it encodes. Returns
+ * `undefined` for plain `capix/auto` or specific catalog ids — those carry
+ * no tier preference.
+ */
+export function qualityTierFromModelId(model: string): SpecialistQualityTier | undefined {
+  if (model === 'capix/auto-fast') return 'fast';
+  if (model === 'capix/auto-best') return 'best';
+  if (model === 'capix/auto-balanced') return 'balanced';
+  return undefined;
+}
+
+/**
+ * The gateway model id to actually send for a logical model id. Tier-suffixed
+ * ids (`capix/auto-fast` etc.) are client-side routing hints, not catalog
+ * models: they all resolve to `capix/auto` with the tier expressed via the
+ * quality-tier contract instead.
+ */
+export function canonicalGatewayModelId(model: string): string {
+  return model.startsWith('capix/auto') ? 'capix/auto' : model;
+}
+
 export function listSpecialists(): SpecialistAgent[] {
   return Object.values(SPECIALIST_AGENTS);
 }

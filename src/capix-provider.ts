@@ -38,6 +38,7 @@ import type {
 
 import { CredentialBroker } from './broker.js';
 import { logger } from './logger.js';
+import { assertSpendCapNotExceeded, recordSpendCapCost } from './spend-cap.js';
 import { buildInferenceUrl, buildModelsUrl, validateBaseUrl } from './url-builder.js';
 
 /** Default production origins. Overridable by config; never by env secret. */
@@ -47,6 +48,19 @@ export const CAPIX_INFERENCE_BASE = 'https://www.capix.network/api/v1';
 export function readPreferredProvider(): 'auto' | 'openrouter' | 'surplus' | 'usepod' {
   const value = process.env.CAPIX_PREFERRED_PROVIDER?.trim().toLowerCase();
   return value === 'openrouter' || value === 'surplus' || value === 'usepod' ? value : 'auto';
+}
+
+/** Smart-router quality tiers accepted by the inference route. */
+export type CapixQualityTier = 'fast' | 'balanced' | 'best';
+
+/**
+ * Resolve the quality tier for inference calls: explicit option wins, then
+ * `CAPIX_QUALITY_TIER` (set by `capix-code run --tier`), then 'balanced' —
+ * matching the router's own degradation for missing/unknown values.
+ */
+export function readQualityTier(value?: string | null): CapixQualityTier {
+  const raw = (value ?? process.env.CAPIX_QUALITY_TIER ?? '').trim().toLowerCase();
+  return raw === 'fast' || raw === 'best' ? raw : 'balanced';
 }
 
 /** Client/release identification attached to every request. */
@@ -72,6 +86,18 @@ export interface CapixStreamOptions {
   preferredProvider?: 'auto' | 'openrouter' | 'surplus' | 'usepod';
   /** Preferred model when the active target is capix/auto. */
   preferredModel?: string;
+  /**
+   * Smart-router quality tier, sent as `X-Capix-Quality-Tier` on the
+   * inference call. Defaults to `CAPIX_QUALITY_TIER` / 'balanced'.
+   */
+  qualityTier?: CapixQualityTier;
+  /**
+   * Specialist subagent role (explore/implement/test/review/security/deploy),
+   * sent as `X-Capix-Agent-Class`. The router does not read a task-class
+   * field today — intent is inferred server-side from message text — so this
+   * is forward-compatible request metadata, not a routing contract.
+   */
+  agentClass?: string;
   /** Client/release metadata attached as headers. */
   meta: CapixClientMeta;
   /** Max output tokens, if the engine set one. */
@@ -442,6 +468,11 @@ export async function* stream(
   let firstOutputSeen = false;
 
   const doRequest = async (token: string): Promise<Response> => {
+    // Hard spend cap: never issue a new inference call once the run's
+    // receipt-accounted spend has reached the budget. Checked here, at the
+    // single choke point every inference request flows through, so no code
+    // path can overshoot. The cap comes from real receipt cost only.
+    assertSpendCapNotExceeded();
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -449,6 +480,8 @@ export async function* stream(
         Accept: 'text/event-stream',
         Authorization: `Bearer ${token}`,
         'Idempotency-Key': requestId,
+        'X-Capix-Quality-Tier': options.qualityTier ?? readQualityTier(),
+        ...(options.agentClass ? { 'X-Capix-Agent-Class': options.agentClass } : {}),
         ...metaHeaders(options.meta, requestId),
       },
       body: JSON.stringify(requestBody),
@@ -513,7 +546,12 @@ export async function* stream(
           }
         }
         const mapped = mapChunk(chunk);
-        if (mapped.type === 'usage') usageSeen = true;
+        if (mapped.type === 'usage') {
+          usageSeen = true;
+          // Feed the process-level spend ledger from real receipt cost; the
+          // ledger warns once at 90% and blocks new calls at 100%.
+          if (mapped.cost) recordSpendCapCost(mapped.cost.amount, mapped.cost.scale);
+        }
         if (mapped.type === 'text' || mapped.type === 'tool' || mapped.type === 'reasoning') {
           firstOutputSeen = true;
         }
