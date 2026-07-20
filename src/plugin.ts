@@ -281,44 +281,82 @@ function engineToolRiskClass(toolName: string): ToolRiskClass {
  */
 export function createRuntimeModelInvoker(meta: CapixClientMeta): RuntimeModelInvoker {
   return async function* (req) {
-    const stream = capixStream(
-      {
-        // Tier-suffixed logical ids (capix/auto-best etc.) collapse to the
-        // canonical gateway target; the tier travels on the header instead.
-        model: canonicalGatewayModelId(req.modelId),
-        messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
-      },
-      {
-        meta,
-        signal: req.signal,
-        // Specialist sessions carry their role's tier; the provider falls
-        // back to CAPIX_QUALITY_TIER / balanced otherwise.
-        qualityTier: req.qualityTier ?? qualityTierFromModelId(req.modelId),
-        // Router has no task-class field today; the role is sent as
-        // X-Capix-Agent-Class request metadata.
-        agentClass: req.specialist?.role,
+    // Retry the whole request ONLY when the stream died before any content
+    // was emitted (a mid-stream error after text flowed is not retryable —
+    // retrying would duplicate content). Transient classes: 429/5xx/timeouts
+    // and the gateway's retry-classified route failures.
+    const maxAttempts = 4;
+    let attempt = 0;
+    for (;;) {
+      attempt += 1;
+      let emittedContent = false;
+      let pendingError: { message?: string; capixCode?: string; retryAfterMs?: number } | null = null;
+      try {
+        const stream = capixStream(
+          {
+            // Tier-suffixed logical ids (capix/auto-best etc.) collapse to the
+            // canonical gateway target; the tier travels on the header instead.
+            model: canonicalGatewayModelId(req.modelId),
+            messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+          },
+          {
+            meta,
+            signal: req.signal,
+            // Specialist sessions carry their role's tier; the provider falls
+            // back to CAPIX_QUALITY_TIER / balanced otherwise.
+            qualityTier: req.qualityTier ?? qualityTierFromModelId(req.modelId),
+            // Router has no task-class field today; the role is sent as
+            // X-Capix-Agent-Class request metadata.
+            agentClass: req.specialist?.role,
+          }
+        );
+        for await (const chunk of stream) {
+          if (chunk.type === 'text') {
+            emittedContent = true;
+            yield { type: 'text', delta: chunk.delta } as RuntimeModelChunk;
+          } else if (chunk.type === 'reasoning') {
+            emittedContent = true;
+            yield { type: 'reasoning', delta: chunk.delta } as RuntimeModelChunk;
+          } else if (chunk.type === 'usage') {
+            // Mirror real token/cost usage into the session status store so the
+            // TUI shows actual usage after inference instead of zeros.
+            sessionStatus.recordUsage(chunk.input, chunk.output, chunk.cost);
+            yield {
+              type: 'usage',
+              inputUnits: chunk.input,
+              outputUnits: chunk.output,
+              costMinor: chunk.cost?.amount ?? '0',
+            } as RuntimeModelChunk;
+          } else if (chunk.type === 'error') {
+            pendingError = chunk;
+            break;
+          }
+        }
+      } catch (err) {
+        pendingError = { message: (err as Error).message };
       }
-    );
-    for await (const chunk of stream) {
-      if (chunk.type === 'text') {
-        yield { type: 'text', delta: chunk.delta } as RuntimeModelChunk;
-      } else if (chunk.type === 'reasoning') {
-        yield { type: 'reasoning', delta: chunk.delta } as RuntimeModelChunk;
-      } else if (chunk.type === 'usage') {
-        // Mirror real token/cost usage into the session status store so the
-        // TUI shows actual usage after inference instead of zeros.
-        sessionStatus.recordUsage(chunk.input, chunk.output, chunk.cost);
-        yield {
-          type: 'usage',
-          inputUnits: chunk.input,
-          outputUnits: chunk.output,
-          costMinor: chunk.cost?.amount ?? '0',
-        } as RuntimeModelChunk;
-      } else if (chunk.type === 'error') {
-        throw new Error(chunk.message || `capix inference error: ${chunk.capixCode}`);
+      if (!pendingError) return; // stream completed cleanly
+      const transient = isTransientRouteError(pendingError);
+      if (emittedContent || !transient || attempt >= maxAttempts || req.signal?.aborted) {
+        throw new Error(pendingError.message || `capix inference error: ${pendingError.capixCode ?? 'unknown'}`);
       }
+      const backoff = Math.min(8000, (pendingError.retryAfterMs ?? 0) || 1000 * 2 ** (attempt - 1)) + Math.random() * 500;
+      await new Promise((resolve) => setTimeout(resolve, backoff));
     }
   };
+}
+
+/** 429/5xx/timeout and gateway retry-classified route failures are retryable. */
+function isTransientRouteError(err: { message?: string; capixCode?: string }): boolean {
+  const code = err.capixCode ?? '';
+  if (code === 'provider_rate_limited' || code === 'inference_route_failed') return true;
+  const msg = (err.message ?? '').toLowerCase();
+  return (
+    msg.includes('route temporarily unavailable') ||
+    msg.includes(' 429') || msg.includes('status 429') ||
+    msg.includes(' 500') || msg.includes(' 502') || msg.includes(' 503') || msg.includes(' 504') ||
+    msg.includes('timeout') || msg.includes('timed out')
+  );
 }
 
 /**
