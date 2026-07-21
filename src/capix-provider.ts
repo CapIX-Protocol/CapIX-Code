@@ -536,7 +536,14 @@ export async function* stream(
       if (options.signal?.aborted) {
         throw new CapixHttpError(0, 'ABORTED', 'request aborted by caller', undefined, 'none');
       }
+      // Mid-stream stall timeout: a lane dripping nothing for 120s during
+      // an open stream is dead weight — abort as retryable instead of letting
+      // the session look hung (the sandbox stall-kill pattern).
+      const stallTimer: ReturnType<typeof setTimeout> | null = firstByteTimer ? null : setTimeout(() => {
+        reader.cancel(new CapixHttpError(0, 'STREAM_STALLED', 'no stream data for 120s mid-stream', undefined, 'retry')).catch(() => undefined);
+      }, 120_000);
       const { done, value } = await reader.read();
+      if (stallTimer) clearTimeout(stallTimer);
       if (firstByteTimer) { clearTimeout(firstByteTimer); firstByteTimer = null; }
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
