@@ -76,6 +76,7 @@ jobs:
         run: |
           bash scripts/bootstrap.sh
           bash scripts/rebrand.sh
+          bash scripts/engine-patches.sh
           bash scripts/install-config.sh
       - name: Build complete customer runtime
         shell: bash

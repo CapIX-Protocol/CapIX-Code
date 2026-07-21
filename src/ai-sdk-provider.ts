@@ -1,15 +1,16 @@
 import type {
-  LanguageModelV2,
-  LanguageModelV2CallOptions,
-  LanguageModelV2Content,
-  LanguageModelV2FinishReason,
-  LanguageModelV2StreamPart,
-  LanguageModelV2Usage,
-  ProviderV2,
-  SharedV2ProviderMetadata,
+  LanguageModelV3,
+  LanguageModelV3CallOptions,
+  LanguageModelV3Content,
+  LanguageModelV3FinishReason,
+  LanguageModelV3StreamPart,
+  LanguageModelV3Usage,
+  ProviderV3,
+  SharedV3ProviderMetadata,
 } from '@ai-sdk/provider';
 
 import {
+  CapixHttpError,
   stream as capixStream,
   type CapixClientMeta,
   type CapixProviderChunk,
@@ -35,8 +36,8 @@ export interface CapixAiSdkProviderOptions {
 const DEFAULT_META: CapixClientMeta = {
   releaseId: 'bundled',
   client: 'capix-code',
-  clientVersion: '2.3.6',
-  pluginVersion: '2.3.6',
+  clientVersion: '2.3.7',
+  pluginVersion: '2.3.7',
   acpVersion: '1',
 };
 
@@ -88,7 +89,7 @@ function toolResultText(part: Record<string, unknown>): string {
  * OpenAI-compatible lane enforces (a tool message must answer a tool_call).
  */
 export function toCapixMessages(
-  prompt: LanguageModelV2CallOptions['prompt']
+  prompt: LanguageModelV3CallOptions['prompt']
 ): CapixMessage[] {
   const out: CapixMessage[] = [];
   for (const message of prompt) {
@@ -136,7 +137,7 @@ export function toCapixMessages(
 
 export function toCapixInput(
   modelId: string,
-  options: LanguageModelV2CallOptions
+  options: LanguageModelV3CallOptions
 ): CapixStreamInput {
   return {
     model: modelId,
@@ -145,36 +146,43 @@ export function toCapixInput(
   };
 }
 
-function finishReason(reason: string): LanguageModelV2FinishReason {
-  if (reason === 'tool_calls') return 'tool-calls';
-  if (reason === 'content_filter') return 'content-filter';
-  switch (reason) {
-    case 'stop':
-    case 'length':
-    case 'content-filter':
-    case 'tool-calls':
-    case 'error':
-      return reason;
-    default:
-      return 'other';
-  }
+/**
+ * Map the gateway's finish reason onto the AI SDK v3 shape: the unified
+ * reason drives engine control flow; the raw gateway string is preserved for
+ * diagnostics.
+ */
+function finishReason(reason: string): LanguageModelV3FinishReason {
+  const unified = ((): LanguageModelV3FinishReason['unified'] => {
+    if (reason === 'tool_calls') return 'tool-calls';
+    if (reason === 'content_filter') return 'content-filter';
+    switch (reason) {
+      case 'stop':
+      case 'length':
+      case 'content-filter':
+      case 'tool-calls':
+      case 'error':
+        return reason;
+      default:
+        return 'other';
+    }
+  })();
+  return { unified, raw: reason };
 }
 
-const EMPTY_USAGE: LanguageModelV2Usage = {
-  inputTokens: undefined,
-  outputTokens: undefined,
-  totalTokens: undefined,
+const EMPTY_USAGE: LanguageModelV3Usage = {
+  inputTokens: { total: undefined, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+  outputTokens: { total: undefined, text: undefined, reasoning: undefined },
 };
 
 function metadata(
   receiptId?: string,
   extra: Record<string, unknown> = {}
-): SharedV2ProviderMetadata {
-  return { capix: { ...(receiptId ? { receiptId } : {}), ...extra } } as SharedV2ProviderMetadata;
+): SharedV3ProviderMetadata {
+  return { capix: { ...(receiptId ? { receiptId } : {}), ...extra } } as SharedV3ProviderMetadata;
 }
 
-export class CapixLanguageModel implements LanguageModelV2 {
-  readonly specificationVersion = 'v2' as const;
+export class CapixLanguageModel implements LanguageModelV3 {
+  readonly specificationVersion = 'v3' as const;
   readonly provider = 'capix';
   readonly supportedUrls: Record<string, RegExp[]> = {};
 
@@ -183,7 +191,7 @@ export class CapixLanguageModel implements LanguageModelV2 {
     private readonly config: CapixAiSdkProviderOptions = {}
   ) {}
 
-  private chunks(options: LanguageModelV2CallOptions): AsyncGenerator<CapixProviderChunk> {
+  private chunks(options: LanguageModelV3CallOptions): AsyncGenerator<CapixProviderChunk> {
     return (this.config.transport ?? capixStream)(toCapixInput(this.modelId, options), {
       signal: options.abortSignal,
       projectId: this.config.projectId,
@@ -199,14 +207,16 @@ export class CapixLanguageModel implements LanguageModelV2 {
     });
   }
 
-  async doStream(options: LanguageModelV2CallOptions) {
+  async doStream(options: LanguageModelV3CallOptions) {
     const source = this.chunks(options);
     let receiptId: string | undefined;
     let usage = EMPTY_USAGE;
+    let cost: { amount: string; asset: string; scale: number } | undefined;
     let textOpen = false;
+    let reasoningOpen = false;
     const tools = new Map<string, { name: string; input: string }>();
 
-    const stream = new ReadableStream<LanguageModelV2StreamPart>({
+    const stream = new ReadableStream<LanguageModelV3StreamPart>({
       async start(controller) {
         controller.enqueue({ type: 'stream-start', warnings: [] });
         try {
@@ -232,6 +242,10 @@ export class CapixLanguageModel implements LanguageModelV2 {
                 controller.enqueue({ type: 'text-delta', id: 'text-0', delta: chunk.delta });
                 break;
               case 'reasoning':
+                if (!reasoningOpen) {
+                  reasoningOpen = true;
+                  controller.enqueue({ type: 'reasoning-start', id: 'reasoning-0' });
+                }
                 controller.enqueue({
                   type: 'reasoning-delta',
                   id: 'reasoning-0',
@@ -259,13 +273,24 @@ export class CapixLanguageModel implements LanguageModelV2 {
               }
               case 'usage':
                 usage = {
-                  inputTokens: chunk.input,
-                  outputTokens: chunk.output,
-                  totalTokens: chunk.input + chunk.output,
-                  cachedInputTokens: chunk.cacheRead,
+                  inputTokens: {
+                    total: chunk.input,
+                    noCache: undefined,
+                    cacheRead: chunk.cacheRead,
+                    cacheWrite: chunk.cacheWrite,
+                  },
+                  outputTokens: { total: chunk.output, text: undefined, reasoning: undefined },
                 };
+                // The receipt's provisional cost is the authoritative billed
+                // amount (the catalog list price for capix/auto is zero), so
+                // forward it for the engine's step-finish cost.
+                if (chunk.cost) cost = chunk.cost;
                 break;
               case 'finish':
+                if (reasoningOpen) {
+                  controller.enqueue({ type: 'reasoning-end', id: 'reasoning-0' });
+                  reasoningOpen = false;
+                }
                 if (textOpen) {
                   controller.enqueue({ type: 'text-end', id: 'text-0' });
                   textOpen = false;
@@ -284,16 +309,35 @@ export class CapixLanguageModel implements LanguageModelV2 {
                   type: 'finish',
                   finishReason: finishReason(chunk.finishReason),
                   usage,
-                  providerMetadata: metadata(receiptId, { retryCount: chunk.retryCount ?? 0 }),
+                  providerMetadata: metadata(receiptId, {
+                    retryCount: chunk.retryCount ?? 0,
+                    ...(cost
+                      ? { costUsd: Number(cost.amount) / 10 ** cost.scale, costAsset: cost.asset }
+                      : {}),
+                  }),
                 });
                 controller.close();
                 return;
               case 'error':
-                controller.enqueue({ type: 'error', error: chunk });
+                // Re-throw as a typed CapixHttpError so the gateway's
+                // supportId/traceId and capixCode survive serialization into
+                // the engine's session.error payload.
+                controller.enqueue({
+                  type: 'error',
+                  error: new CapixHttpError(
+                    0,
+                    chunk.capixCode,
+                    chunk.message,
+                    chunk.supportId,
+                    chunk.retryClass ?? 'none',
+                    chunk.retryAfterMs
+                  ),
+                });
                 controller.close();
                 return;
             }
           }
+          if (reasoningOpen) controller.enqueue({ type: 'reasoning-end', id: 'reasoning-0' });
           if (textOpen) controller.enqueue({ type: 'text-end', id: 'text-0' });
           controller.close();
         } catch (error) {
@@ -308,14 +352,14 @@ export class CapixLanguageModel implements LanguageModelV2 {
     return { stream, request: { body: toCapixInput(this.modelId, options) } };
   }
 
-  async doGenerate(options: LanguageModelV2CallOptions) {
+  async doGenerate(options: LanguageModelV3CallOptions) {
     const result = await this.doStream(options);
     const reader = result.stream.getReader();
-    const content: LanguageModelV2Content[] = [];
+    const content: LanguageModelV3Content[] = [];
     let text = '';
     let usage = EMPTY_USAGE;
-    let reason: LanguageModelV2FinishReason = 'unknown';
-    let providerMetadata: SharedV2ProviderMetadata | undefined;
+    let reason: LanguageModelV3FinishReason = { unified: 'other', raw: undefined };
+    let providerMetadata: SharedV3ProviderMetadata | undefined;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -336,8 +380,8 @@ export class CapixLanguageModel implements LanguageModelV2 {
 export function createCapix(options: CapixAiSdkProviderOptions = {}) {
   const provider = ((modelId: string) => new CapixLanguageModel(modelId, options)) as ((
     modelId: string
-  ) => LanguageModelV2) &
-    Partial<ProviderV2>;
+  ) => LanguageModelV3) &
+    Partial<ProviderV3>;
   provider.languageModel = (modelId: string) => new CapixLanguageModel(modelId, options);
   return provider;
 }

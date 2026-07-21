@@ -959,12 +959,13 @@ The stream tracks `firstOutputSeen` — text/tool/reasoning deltas set this flag
 
 **Source:** `src/ai-sdk-provider.ts`
 
-`CapixLanguageModel` implements `LanguageModelV2` from `@ai-sdk/provider`, adapting the Capix SSE stream into AI SDK stream parts:
+`CapixLanguageModel` implements `LanguageModelV3` from `@ai-sdk/provider` (the spec the ai v6 engine consumes natively), adapting the Capix SSE stream into AI SDK stream parts:
 - `capix.route` → `response-metadata` (with receiptId and modelId)
 - `text` → `text-start` / `text-delta` / `text-end`
 - `tool` → `tool-input-start` / `tool-input-delta` / `tool-input-end` / `tool-call`
-- `usage` → finish `usage` (inputTokens, outputTokens, totalTokens, cachedInputTokens)
-- `finish` → finish with `finishReason`, `usage`, `providerMetadata.capix.receiptId`
+- `usage` → finish `usage` (nested v3 shape: inputTokens.total/cacheRead, outputTokens.total) plus the receipt's provisional cost as `providerMetadata.capix.costUsd`
+- `finish` → finish with `{ unified, raw }` `finishReason`, `usage`, `providerMetadata.capix.receiptId`
+- `error` → re-thrown as `CapixHttpError` so supportId/traceId and capixCode survive into the session.error payload
 
 `createCapix(options?)` returns a provider factory that creates `CapixLanguageModel` instances on demand.
 
@@ -1247,7 +1248,7 @@ capix-code (install root)
 │   │   ├── capix-provider.ts          ← SSE streaming + model catalog
 │   │   ├── broker.ts                  ← CredentialBroker (OAuth PKCE, rotation)
 │   │   ├── sandbox.ts                 ← WorkspaceSandbox (profiles, scrubbing)
-│   │   ├── ai-sdk-provider.ts         ← AI SDK LanguageModelV2 adapter
+│   │   ├── ai-sdk-provider.ts         ← AI SDK LanguageModelV3 adapter
 │   │   ├── url-builder.ts             ← URL contract utilities
 │   │   ├── intelligence-client.ts     ← Intelligence API client
 │   │   ├── logger.ts                  ← Structured JSON logger
