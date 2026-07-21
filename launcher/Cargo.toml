@@ -1,6 +1,6 @@
 [package]
 name = "capix-code"
-version = "2.3.7"
+version = "2.3.8"
 edition = "2021"
 description = "Capix Code: signed native launcher/broker/updater for the Capix Agent Runtime"
 license = "Apache-2.0"

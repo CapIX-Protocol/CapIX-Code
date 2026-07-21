@@ -480,6 +480,13 @@ export async function* stream(
     // single choke point every inference request flows through, so no code
     // path can overshoot. The cap comes from real receipt cost only.
     assertSpendCapNotExceeded();
+    // A stalled upstream must not hang forever: handshake + first byte get a
+    // hard 120s timeout merged with the caller's signal. The plain `run`
+    // path passes NO timeout of its own — without this, a lane that accepts
+    // the request and never answers hangs a session indefinitely (the
+    // sandbox silent-hang root cause).
+    const timeoutSignal = AbortSignal.timeout(120_000);
+    const signal = options.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
     const res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -492,7 +499,7 @@ export async function* stream(
         ...metaHeaders(options.meta, requestId),
       },
       body: JSON.stringify(requestBody),
-      signal: options.signal,
+      signal,
     });
     if (!res.ok && res.status === 401 && !refreshed) {
       refreshed = true;
@@ -518,6 +525,11 @@ export async function* stream(
   let buffer = '';
   let lastEventType: string | undefined;
   let usageSeen = false;
+  // First-byte watchdog: headers arrived but no SSE chunk within 120s means
+  // the lane is stalling mid-stream — fail as retryable, never hang.
+  let firstByteTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    reader.cancel(new CapixHttpError(0, 'STREAM_STALLED', 'no stream data within 120s of headers', undefined, 'retry')).catch(() => undefined);
+  }, 120_000);
 
   try {
     while (true) {
@@ -525,6 +537,7 @@ export async function* stream(
         throw new CapixHttpError(0, 'ABORTED', 'request aborted by caller', undefined, 'none');
       }
       const { done, value } = await reader.read();
+      if (firstByteTimer) { clearTimeout(firstByteTimer); firstByteTimer = null; }
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
 
@@ -567,6 +580,7 @@ export async function* stream(
       }
     }
   } finally {
+    if (firstByteTimer) { clearTimeout(firstByteTimer); firstByteTimer = null; }
     reader.releaseLock();
     if (options.signal?.aborted) {
       logger.info('capix-provider: stream aborted', { requestId, firstOutputSeen });
