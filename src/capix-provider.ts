@@ -591,9 +591,22 @@ export async function* stream(
 /** Fetch the model catalog from GET /v1/models (stable server IDs). */
 export async function models(): Promise<Record<string, Model>> {
   const access = await broker().getAccessToken();
-  const res = await fetch(buildModelsUrl(apiBase()), {
-    headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
-  });
+  // The catalog fetch previously had NO timeout — a stalling connection hung
+  // the engine before the first inference, forever (the sandbox silent-hang:
+  // banner printed, then nothing). Bounded at 30s with an honest degraded
+  // catalog (capix/auto delegates selection to the server anyway).
+  let res: Response;
+  try {
+    res = await fetch(buildModelsUrl(apiBase()), {
+      headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (err) {
+    logger.warn('capix-provider: catalog fetch failed or timed out — degraded to capix/auto', {
+      error: (err as Error)?.message,
+    });
+    return { auto: toSdkAutoModel() };
+  }
   if (!res.ok) {
     await classifyHttpError(res);
   }
@@ -617,6 +630,7 @@ export async function list(): Promise<CapixCatalogModel[]> {
   const access = await broker().getAccessToken();
   const res = await fetch(buildModelsUrl(apiBase()), {
     headers: { Authorization: `Bearer ${access.token}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) {
     await classifyHttpError(res);
