@@ -131,7 +131,7 @@ export function isAutonomousMode(env: NodeJS.ProcessEnv = process.env): boolean 
   return env.CAPIX_AUTONOMOUS === '1';
 }
 
-export const CAPIX_PLUGIN_VERSION = '2.4.6';
+export const CAPIX_PLUGIN_VERSION = '2.4.7';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -159,12 +159,47 @@ type ChatParamsOutput = Parameters<ChatParams>[1];
 type ChatMessage = NonNullable<Hooks['chat.message']>;
 type ChatMessageInput = Parameters<ChatMessage>[0];
 type ChatMessageOutput = Parameters<ChatMessage>[1];
+type SystemTransform = NonNullable<Hooks['experimental.chat.system.transform']>;
+type SystemTransformInput = Parameters<SystemTransform>[0];
+type SystemTransformOutput = Parameters<SystemTransform>[1];
 
 let brokerInstance: CredentialBroker | null = null;
 let sandboxInstance: WorkspaceSandbox | null = null;
 let runtimeInstance: CapixAgentRuntime | null = null;
 let mcpSupervisorInstance: McpSupervisor | null = null;
 let intelligenceWired = false;
+
+const EVIDENCE_FIRST_SYSTEM_PROMPT = `Capix Code operating policy:
+- For questions about the current repository, architecture, implementation, bugs, upgrades, or plans, inspect the relevant workspace files with tools before making recommendations.
+- A directory listing alone is not codebase analysis. Read the relevant manifests, entry points, implementation files, tests, and documentation, then cite concrete workspace paths in the answer.
+- Repository work is a multi-step loop: discover relevant files, read them, trace dependencies and tests, verify claims with further searches or commands, then answer. Do not stop after the discovery/listing step while relevant files remain unread.
+- Before finalizing a repository plan or review, gather evidence from at least the project manifest, one relevant entry point, the relevant implementation area, and its tests when those files exist.
+- Clearly distinguish observed facts from inferences and proposed work. Never claim a feature is missing until you have searched for it.
+- Prefer repository-specific findings over generic advice. If inspection is blocked, say exactly what was inspected and what remains unknown.
+- The selected target may be the logical alias capix/auto. If asked which exact model served the request, use the exact routed-model identity supplied by Capix routing metadata; never present capix/auto as the physical model.`;
+
+/** Pure formatter kept exported so the engine bridge has a regression seam. */
+export function formatCapixSystemContext(input: {
+  intelligence?: unknown;
+  codebase?: unknown;
+  skill?: { id: string; systemPrompt: string; reason: string } | null;
+  compaction?: unknown;
+}): string {
+  const blocks = [EVIDENCE_FIRST_SYSTEM_PROMPT];
+  const encode = (value: unknown, max = 12_000) => {
+    const text = JSON.stringify(value, null, 2);
+    return text.length > max ? `${text.slice(0, max)}\n[context truncated]` : text;
+  };
+  if (input.intelligence) blocks.push(`Capix Intelligence Context:\n${encode(input.intelligence)}`);
+  if (input.codebase) blocks.push(`Capix Codebase Context:\n${encode(input.codebase)}`);
+  if (input.skill) {
+    blocks.push(
+      `Active Capix Skill (${input.skill.id}; ${input.skill.reason}):\n${input.skill.systemPrompt}`
+    );
+  }
+  if (input.compaction) blocks.push(`Capix Session Compaction:\n${encode(input.compaction)}`);
+  return blocks.join('\n\n');
+}
 
 function getBroker(): CredentialBroker {
   if (!brokerInstance) {
@@ -820,6 +855,8 @@ export const plugin: Plugin = async (
   const { setBrokerAccessor, setInferenceBaseResolver } = await import('./capix-provider.js');
   setBrokerAccessor(() => broker);
   setInferenceBaseResolver(() => opts.inferenceBaseUrl ?? CAPIX_INFERENCE_BASE);
+  const { setRouteObserver } = await import('./ai-sdk-provider.js');
+  setRouteObserver((servedModel) => sessionStatus.setModel(servedModel));
 
   // Wire the intelligence-client (chat.params context injection + the
   // /deploy + /cleanup covenant gate) to the same broker. This is the single
@@ -979,6 +1016,74 @@ export const plugin: Plugin = async (
   const transcript: Array<{ role: string; content: string }> = [];
   let latestTask = '';
   const COMPACT_THRESHOLD_TOKENS = 6000;
+
+  async function buildTurnSystemContext(): Promise<string> {
+    const intelligenceContext = await fetchIntelligenceContext(undefined).catch((err) => {
+      logger.warn('capix plugin: system intelligence injection failed', {
+        error: (err as Error)?.message,
+      });
+      return undefined;
+    });
+
+    let codebaseContext: unknown;
+    try {
+      if (latestTask.trim()) {
+        const retrieved = await contextRetriever.retrieve(latestTask, { maxTokens: 3000 });
+        codebaseContext = retrieved.files.length > 0
+          ? {
+              type: 'retrieval',
+              files: retrieved.files.map((file) => ({
+                path: file.path,
+                reason: file.reason,
+                score: file.score,
+                lines: file.lines,
+              })),
+              symbols: retrieved.symbols,
+              sources: retrieved.sources,
+              totalTokens: retrieved.totalTokens,
+            }
+          : { type: 'orientation', summary: await contextRetriever.getOrientation() };
+      } else {
+        codebaseContext = { type: 'orientation', summary: await contextRetriever.getOrientation() };
+      }
+    } catch (err) {
+      logger.warn('capix plugin: system codebase injection failed', {
+        error: (err as Error)?.message,
+      });
+    }
+
+    let selectedSkill: { id: string; systemPrompt: string; reason: string } | null = null;
+    if (latestTask) {
+      const selected = skillsRt.autoSelect(latestTask);
+      if (selected) {
+        selectedSkill = {
+          id: selected.skill.id,
+          systemPrompt: selected.skill.systemPrompt,
+          reason: selected.reason,
+        };
+      }
+    }
+
+    let compacted: unknown;
+    const chars = transcript.reduce((total, message) => total + message.content.length, 0);
+    if (Math.ceil(chars / 4) > COMPACT_THRESHOLD_TOKENS) {
+      compacted = await compactor.compact(transcript).catch((err) => {
+        logger.warn('capix plugin: system compaction failed', { error: (err as Error)?.message });
+        return undefined;
+      });
+      if (compacted && typeof compacted === 'object' && 'summary' in compacted) {
+        transcript.length = 0;
+        transcript.push({ role: 'system', content: String((compacted as { summary: unknown }).summary) });
+      }
+    }
+
+    return formatCapixSystemContext({
+      intelligence: intelligenceContext,
+      codebase: codebaseContext,
+      skill: selectedSkill,
+      compaction: compacted,
+    });
+  }
 
   const z = tool.schema;
 
@@ -1714,118 +1819,23 @@ export const plugin: Plugin = async (
     // scoring, or base-URL rewriting. Server-authoritative routing for
     // `capix/auto` remains unchanged (the `capix.route` SSE event still
     // resolves the model).
-    'chat.params': async (chatInput: ChatParamsInput, chatOutput: ChatParamsOutput) => {
-      try {
-        const ctx = await fetchIntelligenceContext(undefined);
-        chatOutput.options = {
-          ...(chatOutput.options ?? {}),
-          capixIntelligenceContext: ctx,
-        };
-      } catch (err) {
-        // Never break the chat turn because intelligence context fetch
-        // failed — log and continue with no injection.
-        logger.warn('capix plugin: chat.params intelligence injection failed', {
-          error: (err as Error)?.message,
-        });
-      }
-
-      // Inject locally-retrieved codebase context (files + symbols most
-      // relevant to this turn's user message). Non-blocking: if the index
-      // isn't ready yet or retrieval fails, we fall back to a compact project
-      // orientation or nothing. This is the bridge between the local
-      // CodebaseIndexer/ContextRetriever and the chat system prompt.
-      try {
-        const requestText = chatInput.message?.summary?.body ?? '';
-        let codebaseContext: unknown;
-        if (requestText.trim()) {
-          const retrieved = await contextRetriever.retrieve(requestText, {
-            maxTokens: 2000,
-          });
-          if (retrieved.files.length > 0) {
-            codebaseContext = {
-              type: 'retrieval',
-              files: retrieved.files.map((f) => ({
-                path: f.path,
-                reason: f.reason,
-                score: f.score,
-                lines: f.lines,
-              })),
-              symbols: retrieved.symbols,
-              sources: retrieved.sources,
-              totalTokens: retrieved.totalTokens,
-            };
-          } else {
-            codebaseContext = {
-              type: 'orientation',
-              summary: await contextRetriever.getOrientation(),
-            };
-          }
-        } else {
-          codebaseContext = {
-            type: 'orientation',
-            summary: await contextRetriever.getOrientation(),
-          };
-        }
-        chatOutput.options = {
-          ...(chatOutput.options ?? {}),
-          capixCodebaseContext: codebaseContext,
-        };
-      } catch (err) {
-        logger.warn('capix plugin: chat.params codebase context injection failed', {
-          error: (err as Error)?.message,
-        });
-      }
-
-      // Skills auto-select: pick a first-party skill whose trigger matches
-      // the latest user task and inject its system-prompt fragment. Non-
-      // blocking — if no skill matches, nothing is injected.
-      try {
-        const task = latestTask;
-        if (task) {
-          const sel = skillsRt.autoSelect(task);
-          if (sel) {
-            chatOutput.options = {
-              ...(chatOutput.options ?? {}),
-              capixSkill: {
-                id: sel.skill.id,
-                systemPrompt: sel.skill.systemPrompt,
-                reason: sel.reason,
-              },
-            };
-          }
-        }
-      } catch (err) {
-        logger.warn('capix plugin: chat.params skills auto-select failed', {
-          error: (err as Error)?.message,
-        });
-      }
-
-      // Loss-aware compaction: when the rolling transcript exceeds the token
-      // budget, compact it into a structured summary (decisions, files,
-      // errors, preferences) and replace the transcript with the summary. The
-      // compacted payload is also surfaced via `capixCompaction` so the
-      // runtime's system-prompt builder can append it as context. Non-blocking.
-      try {
-        const chars = transcript.reduce((n, m) => n + m.content.length, 0);
-        if (Math.ceil(chars / 4) > COMPACT_THRESHOLD_TOKENS) {
-          const compacted = await compactor.compact(transcript);
-          transcript.length = 0;
-          transcript.push({ role: 'system', content: compacted.summary });
-          chatOutput.options = {
-            ...(chatOutput.options ?? {}),
-            capixCompaction: compacted,
-          };
-        }
-      } catch (err) {
-        logger.warn('capix plugin: chat.params compaction failed', {
-          error: (err as Error)?.message,
-        });
-      }
+    'experimental.chat.system.transform': async (
+      _systemInput: SystemTransformInput,
+      systemOutput: SystemTransformOutput
+    ) => {
+      // This is the engine-supported prompt bridge. `chat.params.options`
+      // contains provider-specific request options and is not a system-prompt
+      // channel; placing Capix context there silently discarded it.
+      systemOutput.system.push(await buildTurnSystemContext());
     },
+
+    // Keep the stable hook surface for provider parameter customization. All
+    // semantic context belongs in the system-transform hook above.
+    'chat.params': async (_chatInput: ChatParamsInput, _chatOutput: ChatParamsOutput) => {},
 
     // ── Chat message: capture the user task transcript ────────────────────
     // This hook does NOT classify, route, or rewrite the message. It only
-    // records the user-authored text so `chat.params` can drive skills
+    // records the user-authored text so the system transform can drive skills
     // auto-select and loss-aware compaction. Server-authoritative routing
     // for `capix/auto` is unchanged (resolved via the `capix.route` SSE
     // event).

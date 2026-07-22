@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const streamMock = vi.fn();
 
-import { CapixLanguageModel } from '../src/ai-sdk-provider';
+import { CapixLanguageModel, setRouteObserver } from '../src/ai-sdk-provider';
 import { CapixHttpError, readPreferredProvider } from '../src/capix-provider';
 
 const call = {
@@ -28,7 +28,10 @@ describe('bundled Capix AI SDK provider', () => {
     expect(readPreferredProvider()).toBe('auto');
     delete process.env.CAPIX_PREFERRED_PROVIDER;
   });
-  beforeEach(() => streamMock.mockReset());
+  beforeEach(() => {
+    streamMock.mockReset();
+    setRouteObserver(null);
+  });
 
   it('loads through the local package name OpenCode receives from api.npm', async () => {
     const runtime = await import('@capix/runtime-provider');
@@ -39,6 +42,8 @@ describe('bundled Capix AI SDK provider', () => {
   });
 
   it('maps text, tool deltas, usage and terminal receipt to LanguageModelV3', async () => {
+    const routed = vi.fn();
+    setRouteObserver(routed);
     streamMock.mockImplementation(async function* () {
       yield {
         type: 'route',
@@ -91,6 +96,7 @@ describe('bundled Capix AI SDK provider', () => {
       },
     });
     expect(streamMock.mock.calls[0][1].signal).toBe(call.abortSignal);
+    expect(routed).toHaveBeenCalledWith('model-a');
   });
 
   it('wraps reasoning deltas in reasoning-start/end parts', async () => {

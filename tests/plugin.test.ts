@@ -47,7 +47,12 @@ vi.mock('../src/capix-provider', () => ({
   setInferenceBaseResolver: vi.fn(),
 }));
 
-import { plugin, CAPIX_PLUGIN_VERSION, CAPIX_ACP_VERSION } from '../src/plugin';
+import {
+  plugin,
+  CAPIX_PLUGIN_VERSION,
+  CAPIX_ACP_VERSION,
+  formatCapixSystemContext,
+} from '../src/plugin';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -86,11 +91,26 @@ describe('Plugin factory — Hooks structure', () => {
     expect(typeof hooks.dispose).toBe('function');
   });
 
-  it('registers chat.params and chat.message hooks but not chat.headers', async () => {
+  it('registers the supported system-context bridge and chat hooks', async () => {
     const hooks = await getHooks();
     expect(typeof hooks['chat.message']).toBe('function');
     expect(typeof hooks['chat.params']).toBe('function');
+    expect(typeof hooks['experimental.chat.system.transform']).toBe('function');
     expect(hooks['chat.headers']).toBeUndefined();
+  });
+});
+
+describe('Capix evidence-first system context', () => {
+  it('includes repository inspection rules and retrieved workspace evidence', () => {
+    const prompt = formatCapixSystemContext({
+      intelligence: { activePlan: 'upgrade IDE' },
+      codebase: { type: 'retrieval', files: [{ path: 'src/ide.ts', reason: 'entry point' }] },
+      skill: { id: 'architecture', reason: 'matched plan', systemPrompt: 'Map boundaries first.' },
+    });
+    expect(prompt).toContain('A directory listing alone is not codebase analysis');
+    expect(prompt).toContain('src/ide.ts');
+    expect(prompt).toContain('Map boundaries first.');
+    expect(prompt).toContain('never present capix/auto as the physical model');
   });
 });
 

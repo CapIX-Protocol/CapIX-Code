@@ -36,10 +36,20 @@ export interface CapixAiSdkProviderOptions {
 const DEFAULT_META: CapixClientMeta = {
   releaseId: 'bundled',
   client: 'capix-code',
-  clientVersion: '2.4.6',
-  pluginVersion: '2.4.6',
+  clientVersion: '2.4.7',
+  pluginVersion: '2.4.7',
   acpVersion: '1',
 };
+
+const ROUTE_OBSERVER = Symbol.for('capix.code.routeObserver');
+type RouteObserverGlobal = typeof globalThis & {
+  [ROUTE_OBSERVER]?: ((servedModel: string) => void) | null;
+};
+
+/** Bridge route metadata into the Capix TUI without coupling the provider to UI modules. */
+export function setRouteObserver(observer: ((servedModel: string) => void) | null): void {
+  (globalThis as RouteObserverGlobal)[ROUTE_OBSERVER] = observer;
+}
 
 export interface CapixToolCall {
   id: string;
@@ -272,6 +282,7 @@ export class CapixLanguageModel implements LanguageModelV3 {
             switch (chunk.type) {
               case 'route':
                 receiptId = chunk.receiptId;
+                (globalThis as RouteObserverGlobal)[ROUTE_OBSERVER]?.(chunk.model);
                 controller.enqueue({
                   type: 'response-metadata',
                   id: chunk.receiptId,

@@ -86,8 +86,8 @@ dist/customer/bin/capix-code doctor
 For CI/cross-platform release builds, tag a version:
 
 ```bash
-git tag v2.4.6
-git push origin v2.4.6
+git tag v2.4.7
+git push origin v2.4.7
 # The CI release job builds the native launcher binary (ubuntu-latest) and
 # packages a source tarball with SHA-256 checksums and SBOM (UNSIGNED draft).
 ```
