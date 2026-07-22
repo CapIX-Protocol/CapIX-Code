@@ -130,6 +130,7 @@ jobs:
     env:
       VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
       APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
+      APPLE_NOTARIZATION: ${{ secrets.APPLE_ID != '' && 'true' || 'false' }}
       WINDOWS_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
@@ -211,7 +212,7 @@ jobs:
             dist/customer/bin/capix-code
           codesign --verify --deep --strict dist/customer/bin/capix-code
       - name: Notarize macOS binaries
-        if: runner.os == 'macOS' && env.APPLE_SIGNING == 'true' && secrets.APPLE_ID != ''
+        if: runner.os == 'macOS' && env.APPLE_SIGNING == 'true' && env.APPLE_NOTARIZATION == 'true'
         shell: bash
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
