@@ -163,7 +163,7 @@ jobs:
             --stable-version "${{ inputs.release_tag }}" \
             --source-sha "${{ github.sha }}" \
             --launcher-version "${{ inputs.version }}" \
-            --opencode-version 1.17.18 \
+            --engine-version 1.17.18 \
             --plugin-version "${{ inputs.version }}" \
             --provider-version "${{ inputs.version }}" \
             --out release-artifacts/release-manifest.json \

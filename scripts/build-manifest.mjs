@@ -12,7 +12,7 @@
  *     --base-url https://github.com/CapIX-Protocol/Capix-Code/releases/download \
  *     --stable-version v1.2.4 \
  *     --source-sha <40-hex> \
- *     --launcher-version 1.2.4 --opencode-version 1.17.18 \
+ *     --launcher-version 1.2.4 --engine-version 1.17.18 \
  *     --plugin-version 1.2.4 --provider-version 1.2.4 \
  *     [--out manifest/release-manifest.json] [--require-all]
  *
@@ -53,8 +53,8 @@ function parseArgs(argv) {
       case '--launcher-version':
         args.launcherVersion = argv[++i];
         break;
-      case '--opencode-version':
-        args.opencodeVersion = argv[++i];
+      case '--engine-version':
+        args.engineVersion = argv[++i];
         break;
       case '--plugin-version':
         args.pluginVersion = argv[++i];
@@ -117,7 +117,7 @@ export function buildManifestFromEntries(entries, opts) {
     stableVersion,
     sourceSha,
     launcherVersion,
-    opencodeVersion,
+    engineVersion,
     pluginVersion,
     providerVersion,
   } = opts;
@@ -128,7 +128,7 @@ export function buildManifestFromEntries(entries, opts) {
     errors.push('--source-sha must be a 40-character lowercase hex commit SHA');
   for (const [name, v] of [
     ['launcher', launcherVersion],
-    ['opencode', opencodeVersion],
+    ['engine', engineVersion],
     ['plugin', pluginVersion],
     ['provider', providerVersion],
   ]) {
@@ -174,7 +174,7 @@ export function buildManifestFromEntries(entries, opts) {
     createdBy: 'release-engineering',
     immutable: true,
     launcher: { sourceSha, version: launcherVersion },
-    opencode: { sourceSha, version: opencodeVersion },
+    engine: { sourceSha, version: engineVersion },
     plugin: { sourceSha, version: pluginVersion },
     provider: { sourceSha, version: providerVersion },
     acpVersion: '1',
@@ -198,7 +198,7 @@ function main() {
     stableVersion: requireArg(args, 'stableVersion'),
     sourceSha: requireArg(args, 'sourceSha'),
     launcherVersion: requireArg(args, 'launcherVersion'),
-    opencodeVersion: requireArg(args, 'opencodeVersion'),
+    engineVersion: requireArg(args, 'engineVersion'),
     pluginVersion: requireArg(args, 'pluginVersion'),
     providerVersion: requireArg(args, 'providerVersion'),
     requireAll: args.requireAll,

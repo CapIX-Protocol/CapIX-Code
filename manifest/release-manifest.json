@@ -5,7 +5,7 @@
   "createdBy": "release-engineering",
   "immutable": true,
   "launcher": { "sourceSha": "TEMPLATE", "version": "0.1.0" },
-  "opencode": { "sourceSha": "TEMPLATE", "version": "TEMPLATE" },
+  "engine": { "sourceSha": "TEMPLATE", "version": "TEMPLATE" },
   "plugin": { "sourceSha": "TEMPLATE", "version": "0.1.0" },
   "provider": { "sourceSha": "TEMPLATE", "version": "0.1.0" },
   "acpVersion": "1",

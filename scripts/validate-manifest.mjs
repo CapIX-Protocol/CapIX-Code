@@ -66,8 +66,8 @@ export function validateManifest(manifest, { strict = false } = {}) {
     );
   }
 
-  // 3. Component provenance (launcher/opencode/plugin/provider).
-  for (const comp of ['launcher', 'opencode', 'plugin', 'provider']) {
+  // 3. Component provenance (launcher/engine/plugin/provider).
+  for (const comp of ['launcher', 'engine', 'plugin', 'provider']) {
     const node = manifest[comp];
     if (!node || typeof node !== 'object') {
       errors.push(`$.${comp} must be an object`);

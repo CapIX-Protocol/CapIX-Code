@@ -322,15 +322,18 @@ jobs:
           mkdir -p release-artifacts
           find artifacts -type f -exec cp {} release-artifacts/ \;
 
+          release_version="${{ github.ref_name }}"
+          release_version="${release_version#v}"
+
           node scripts/build-manifest.mjs \
             --entries release-artifacts \
             --base-url https://github.com/CapIX-Protocol/CapIX-Code/releases/download \
             --stable-version "${{ github.ref_name }}" \
             --source-sha "${{ github.sha }}" \
-            --launcher-version "${{ github.ref_name }}" \
-            --opencode-version 1.17.18 \
-            --plugin-version "${{ github.ref_name }}" \
-            --provider-version "${{ github.ref_name }}" \
+            --launcher-version "$release_version" \
+            --engine-version 1.17.18 \
+            --plugin-version "$release_version" \
+            --provider-version "$release_version" \
             --out release-artifacts/release-manifest.json \
             --require-all
           node scripts/validate-manifest.mjs release-artifacts/release-manifest.json
