@@ -18,11 +18,7 @@ import {
   getUnconsolidatedHandoff,
   getUnreadMemos,
   markMemoRead,
-  type ExitReport,
-  type StructuredMemo,
 } from "./memory/store";
-import { existsSync, statSync, readdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
 
 const STALE_MEMO_DAYS = 7;
 const STALE_HANDOFF_DAYS = 30;
@@ -44,7 +40,7 @@ export function runDreamCycle(soulName: string = "capix-code"): DreamCycleReport
   let staleMemosCleaned = 0;
   let staleHandoffDetected = 0;
   let orphanAgentsDetected = 0;
-  let compressionAnchorsCleaned = 0;
+  const compressionAnchorsCleaned = 0;
 
   const now = Date.now();
   const staleMemoMs = STALE_MEMO_DAYS * 24 * 60 * 60 * 1000;

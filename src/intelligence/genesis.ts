@@ -16,13 +16,8 @@ import { loadSpirit, type Spirit } from "./spirit";
 import {
   getUnconsolidatedHandoff,
   getUnreadMemos,
-  getRecentSemanticMemory,
   searchMemory,
   loadUserModel,
-  type ExitReport,
-  type StructuredMemo,
-  type UserModel,
-  type MemoryHit,
 } from "./memory/store";
 
 export interface GenesisBriefing {

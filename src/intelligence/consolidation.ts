@@ -16,7 +16,7 @@
  * 10. Generate parables from failures/successes
  */
 
-import { loadSpirit, saveSpirit, updateSpirit, addLearning, type Spirit } from "./spirit";
+import { loadSpirit, updateSpirit, addLearning, type Spirit } from "./spirit";
 import {
   getUnconsolidatedHandoff,
   writeSemanticMemory,
@@ -24,9 +24,6 @@ import {
   getUnreadMemos,
   markMemoRead,
   writeParable,
-  loadUserModel,
-  saveUserModel,
-  getRecentSemanticMemory,
   type ExitReport,
   type StructuredMemo,
 } from "./memory/store";
@@ -72,9 +69,6 @@ export function consolidate(soulName: string = "capix-code"): ConsolidationRepor
   const spirit = loadSpirit(soulName);
   const handoff = getUnconsolidatedHandoff(soulName);
   const memos = getUnreadMemos(soulName);
-  const userModel = loadUserModel(soulName);
-  const recentSemantic = getRecentSemanticMemory(3, soulName);
-
   const whatWorked: string[] = [];
   const whatFailed: string[] = [];
   const whatILearned: string[] = [];
@@ -231,7 +225,7 @@ function computeHealthScore(
   if (incomplete.length > handoff.length / 2) compliance -= 10;
 
   // Trust: progressive trust (simplified — based on cycle count)
-  let trust = Math.min(25, spirit.cycleCount * 2);
+  const trust = Math.min(25, spirit.cycleCount * 2);
 
   // Freshness: memory is current
   let freshness = 25;
@@ -248,7 +242,7 @@ function generateNextMandate(
   whatWorked: string[],
   whatFailed: string[],
   healthScore: ConsolidationReport["healthScore"],
-  nextActions: string[],
+  _nextActions: string[],
 ): string {
   if (whatFailed.length > whatWorked.length) {
     return "Previous cycle had more failures than successes. Adjust approach. Focus on what worked before.";
