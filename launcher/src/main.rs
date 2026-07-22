@@ -565,13 +565,13 @@ fn run_engine(root: &Path, args: &[String], run: RunConfig) -> Result<ExitCode, 
         .map_err(|e| format!("cannot encode bundled Capix config: {e}"))?;
     let config_file = root.join("config/runtime-config.json");
     let _ = std::fs::write(&config_file, &config_content);
-    let available = canonical
-        .1
-        .pointer("/balances/USDC/available")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
+    // The account balance is multi-asset. Customers can fund with SOL, USDC,
+    // or both, so showing the USDC sub-ledger here incorrectly rendered a
+    // SOL-funded account as $0.00. The billing API owns price discovery and
+    // exposes the canonical merged USD valuation.
+    let available = canonical_balance_usd(&canonical.1);
     eprintln!(
-        "Capix connected · USDC balance {} · model Capix Auto",
+        "Capix connected · balance ${} · model Capix Auto",
         available
     );
     let engine_args: Vec<String> = if run.auto {
@@ -628,6 +628,19 @@ fn run_engine(root: &Path, args: &[String], run: RunConfig) -> Result<ExitCode, 
         .status()
         .map_err(|e| format!("failed to launch engine: {e}"))?;
     Ok(ExitCode::from(status.code().unwrap_or(1) as u8))
+}
+
+fn canonical_balance_usd(billing: &serde_json::Value) -> String {
+    let value = billing
+        .pointer("/valuation/usdTotal")
+        .and_then(|v| {
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+        });
+    match value {
+        Some(value) if value.is_finite() && value >= 0.0 => format!("{value:.2}"),
+        _ => "unavailable".to_string(),
+    }
 }
 
 const WEB_ORIGIN: &str = "https://www.capix.network";
@@ -2535,5 +2548,28 @@ mod tests {
         assert!(parse_spend_cap_minor("").is_err());
         assert!(parse_spend_cap_minor("1.2.3").is_err());
         assert!(parse_spend_cap_minor("99999999999999").is_err());
+    }
+
+    #[test]
+    fn canonical_balance_uses_merged_multi_asset_valuation() {
+        let billing = serde_json::json!({
+            "balances": {
+                "USDC": { "available": "0" },
+                "SOL": { "available": "25855822" }
+            },
+            "valuation": { "usdTotal": 5.17 }
+        });
+        assert_eq!(canonical_balance_usd(&billing), "5.17");
+    }
+
+    #[test]
+    fn canonical_balance_accepts_string_valuation_and_fails_closed() {
+        assert_eq!(
+            canonical_balance_usd(&serde_json::json!({
+                "valuation": { "usdTotal": "5.00" }
+            })),
+            "5.00"
+        );
+        assert_eq!(canonical_balance_usd(&serde_json::json!({})), "unavailable");
     }
 }
