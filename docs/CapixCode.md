@@ -1,7 +1,7 @@
 # Capix Code — Feature Documentation
 
 > **Version:** 1.3.0 · **Plugin:** 1.2.7 · **ACP version:** 1  
-> **License:** Apache-2.0 · **Repository:** [CapIX-Protocol/Capix-Code](https://github.com/CapIX-Protocol/Capix-Code)
+> **License:** Apache-2.0 · **Repository:** [CapIX-Protocol/CapIX-Code](https://github.com/CapIX-Protocol/CapIX-Code)
 
 ---
 
@@ -26,13 +26,13 @@
 
 ## 1. Overview
 
-Capix Code is a decentralized AI coding agent that combines the **OpenCode engine** with a custom **Capix plugin** to deliver a fully branded, authenticated, sandboxed coding experience on the Capix network.
+Capix Code is a decentralized AI coding agent that combines the **Capix agent engine** with its native network runtime to deliver a fully branded, authenticated, sandboxed coding experience on the Capix network.
 
 ### What it is
 
 | Aspect | Detail |
 |---|---|
-| **Engine** | OpenCode — the upstream TypeScript/Bun coding agent, rebranded in-place via `scripts/rebrand.sh` |
+| **Engine** | Capix agent engine — the bundled TypeScript/Bun coding runtime |
 | **Plugin** | The Capix plugin (`src/plugin.ts`), ~1,050 lines of original TypeScript that registers the provider, broker, sandbox, tools, planner, subagents, and skills |
 | **Launcher** | A Rust native binary (`launcher/`) that manages the OS keyring, OAuth PKCE flow, environment scrubbing, model catalog discovery, and engine spawning |
 | **Default model** | `capix/auto` — server-authoritative smart routing that delegates model selection to the Capix gateway per-request |
@@ -64,19 +64,19 @@ Capix Code ships as unsigned customer builds. **Always verify the SHA-256 checks
 The `scripts/install.sh` installer resolves a pinned version, downloads the platform-appropriate tarball, verifies the SHA-256 checksum, and stages the runtime:
 
 ```bash
-CAPIX_STABLE_VERSION=v1.2.7 bash scripts/install.sh latest
+CAPIX_STABLE_VERSION=v2.4.6 bash scripts/install.sh latest
 ```
 
 Or pin a specific version:
 
 ```bash
-bash scripts/install.sh v1.2.7
+bash scripts/install.sh v2.4.6
 ```
 
 The installer:
 1. Resolves `latest` to an immutable version via `CAPIX_STABLE_VERSION` (fails closed without it).
 2. Detects OS (`darwin`/`linux`) and architecture (`arm64`/`x64`).
-3. Downloads the tarball and its adjacent SHA-256 from `https://github.com/CapIX-Protocol/Capix-Code/releases/download/<version>/`.
+3. Downloads the tarball and its adjacent SHA-256 from `https://github.com/CapIX-Protocol/CapIX-Code/releases/download/<version>/`.
 4. Verifies exactly one checksum line matching the artifact name and a 64-char hex digest.
 5. Extracts `customer/bin/capix-code` into `~/.local/share/capix-code/` and symlinks it to `~/.local/bin/capix-code`.
 6. Never invokes `sudo` — installs to user-owned directories only.
@@ -89,35 +89,22 @@ Environment overrides:
 | `CAPIX_STABLE_VERSION` | — | Immutable pin for `latest` |
 | `CAPIX_INSTALL_DIR` | `~/.local/bin` | Symlink target directory |
 | `CAPIX_CODE_RUNTIME_DIR` | `~/.local/share/capix-code` | Runtime extraction directory |
-| `CAPIX_RELEASE_BASE_URL` | `https://github.com/CapIX-Protocol/Capix-Code/releases/download` | Release download base |
+| `CAPIX_RELEASE_BASE_URL` | `https://github.com/CapIX-Protocol/CapIX-Code/releases/download` | Release download base |
 
 ### 2.2 Homebrew
 
-Homebrew support is planned but not yet available. Use the curl installer or npm until the Capix Homebrew tap is published.
+Homebrew support is planned but not yet available. Use the checksum-verified release installer until the Capix Homebrew tap is published.
 
 ### 2.3 npm
 
-```bash
-npm install -g capix-code
-```
-
-The npm package (`package.json`) uses platform-specific optional dependencies to fetch the correct native binary:
-
-| Optional dependency | Platform |
-|---|---|
-| `@capix-code/darwin-arm64` | macOS Apple silicon |
-| `@capix-code/darwin-x64` | macOS Intel |
-| `@capix-code/linux-arm64` | Linux ARM64 |
-| `@capix-code/linux-x64` | Linux x86_64 |
-| `@capix-code/windows-x64` | Windows x64 |
-
-The `postinstall.js` script downloads the `capix-code` launcher binary and the `capix-engine` runtime from GitHub releases into `~/.capix-code/bin/` and `~/.capix-code/engine/` respectively.
-
-Requires Node.js 20 or newer (`engines.node >= 20`).
+The npm distribution is not the authoritative customer channel until its
+`latest` tag matches the release documented here. Use the verified GitHub
+release installer above; it installs the exact native launcher and runtime for
+the current platform without requiring Node.js.
 
 ### 2.4 GitHub releases
 
-Direct download from [GitHub Releases](https://github.com/CapIX-Protocol/Capix-Code/releases). Each release provides:
+Direct download from [GitHub Releases](https://github.com/CapIX-Protocol/CapIX-Code/releases). Each release provides:
 
 - `capix-code-<version>-<os>-<arch>-unsigned.tar.gz` — the runtime bundle
 - `capix-code-<version>-<os>-<arch>-unsigned.tar.gz.sha256` — adjacent checksum
@@ -126,10 +113,10 @@ Direct download from [GitHub Releases](https://github.com/CapIX-Protocol/Capix-C
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v1.2.7
+CODE_VERSION=v2.4.6
 CODE_ARCH=arm64
 CODE_NAME="capix-code-${CODE_VERSION#v}-darwin-${CODE_ARCH}-unsigned"
-CODE_URL="https://github.com/CapIX-Protocol/Capix-Code/releases/download/${CODE_VERSION}"
+CODE_URL="https://github.com/CapIX-Protocol/CapIX-Code/releases/download/${CODE_VERSION}"
 
 cd ~/Downloads
 curl --proto '=https' --tlsv1.2 -fLO "${CODE_URL}/${CODE_NAME}.tar.gz"
@@ -160,10 +147,10 @@ Requires Node.js 20+, Rust stable, C/C++ build tools, and Bun `1.3.14` exactly:
 ```bash
 curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
 export PATH="$HOME/.bun/bin:$PATH"
-git clone https://github.com/CapIX-Protocol/Capix-Code.git
-cd Capix-Code
+git clone https://github.com/CapIX-Protocol/CapIX-Code.git
+cd CapIX-Code
 test "$(bun --version)" = "1.3.14"
-./scripts/bootstrap.sh          # clones upstream OpenCode source
+./scripts/bootstrap.sh          # hydrates the pinned agent-engine source
 ./scripts/rebrand.sh            # rebrands identity strings → capix-code
 BUN_BIN="$(command -v bun)" ./scripts/build.sh
 ./dist/customer/bin/capix-code --version
@@ -331,7 +318,7 @@ All API commands:
 
 ## 4. Plugin System
 
-The Capix plugin (`src/plugin.ts`) is the real OpenCode plugin contract implementation: `(input, options?) => Promise<Hooks>`. It is the single integration point between the Capix network and the OpenCode engine.
+The Capix plugin (`src/plugin.ts`) implements the engine hook contract: `(input, options?) => Promise<Hooks>`. It is the single integration point between the Capix network and the agent engine.
 
 ### 4.1 Plugin factory
 
@@ -351,7 +338,7 @@ The plugin factory (`src/plugin.ts:407`):
 
 ### 4.2 Registered hooks
 
-The `Hooks` object registers the following OpenCode hooks:
+The `Hooks` object registers the following engine hooks:
 
 | Hook | Purpose |
 |---|---|
@@ -368,7 +355,7 @@ The `Hooks` object registers the following OpenCode hooks:
 
 ### 4.3 The 5 Capix tools
 
-Each tool is registered under `Hooks.tool` using the `@opencode-ai/plugin` `tool()` factory with a Zod schema:
+Each tool is registered under `Hooks.tool` using the bundled tool factory with a Zod schema:
 
 #### `capix_search_codebase`
 
@@ -891,7 +878,7 @@ The `chat.params` hook (`src/plugin.ts:919`) auto-selects a skill on every turn:
 
 **Source:** `src/capix-provider.ts`
 
-The Capix provider is the real implementation against the OpenCode plugin contract. It deliberately does **not** use generic OpenAI compatibility, because that layer would lose tool-call streaming, cancellation, typed errors, and receipt/usage metadata.
+The Capix provider is the real implementation against the native engine contract. It deliberately does **not** use a generic compatibility shim, because that layer would lose tool-call streaming, cancellation, typed errors, and receipt/usage metadata.
 
 ### 10.1 Architecture
 
@@ -947,7 +934,7 @@ The stream tracks `firstOutputSeen` — text/tool/reasoning deltas set this flag
 
 ### 10.5 Model catalog
 
-`models()` fetches the live catalog from `GET <apiBase>/models` and converts each entry into the OpenCode SDK `Model` shape, including:
+`models()` fetches the live catalog from `GET <apiBase>/models` and converts each entry into the engine `Model` shape, including:
 - Capabilities: tool-call, reasoning, attachment (vision), modalities (text/audio/image/video/pdf for input and output)
 - Cost: input/output/cache-read/cache-write per million tokens
 - Limits: context window, max output
@@ -971,7 +958,7 @@ The stream tracks `firstOutputSeen` — text/tool/reasoning deltas set this flag
 
 ### 10.7 Auth hook
 
-`capixAuthLoader` (`src/capix-provider.ts:594`) bridges the OpenCode auth hook to the credential broker:
+`capixAuthLoader` (`src/capix-provider.ts:594`) bridges the engine auth hook to the credential broker:
 - OAuth type → `Authorization: Bearer <access>`, `X-Capix-Account: <accountId>`
 - API key type → `Authorization: Bearer <key>`
 
@@ -988,7 +975,7 @@ There is **deliberately no** client-side router, prompt classifier, provider sco
 
 **Source:** `src/broker.ts`
 
-The `CredentialBroker` is the privileged local identity boundary. It keeps refresh tokens out of OpenCode, plugins, shell tools, args, config, environment, logs, and crash bundles. This is the TypeScript reference implementation; the canonical native broker ships in the Rust launcher.
+The `CredentialBroker` is the privileged local identity boundary. It keeps refresh tokens out of the agent engine, plugins, shell tools, args, config, environment, logs, and crash bundles. This is the TypeScript reference implementation; the canonical native broker ships in the Rust launcher.
 
 ### 11.1 Security obligations
 
@@ -1126,7 +1113,8 @@ Matching is case-insensitive, platform-neutral (backslashes normalized to forwar
 
 **Safe keys (always kept):** `PATH`, `HOME`, `USER`, `LANG`, `LC_ALL`, `TERM`, `SHELL`, `PWD`
 
-**Scrubbed by prefix:** `CAPIX_`, `AWS_`, `AZURE_`, `GOOGLE_`, `GCLOUD_`, `OPENAI_`, `ANTHROPIC_`, `SSH_`, `WALLET_`, `SOLANA_`, `PRIVATE_`, `SECRET_`, `VAST_`, `HETZNER_`
+**Scrubbed by prefix:** Capix, public-cloud, model-provider, SSH, wallet,
+chain, private-key, secret, and compute-provider credential prefixes.
 
 **Scrubbed by exact match:** `TOKEN`, `API_KEY`, `APIKEY`, `REFRESH_TOKEN`, `ACCESS_TOKEN`, `PASSPHRASE`, `PASSWORD`, `PRIVATE_KEY`, `BEARER`, `AUTHORIZATION`
 
@@ -1153,7 +1141,7 @@ If the OS native isolation layer is absent (Landlock/seccomp on Linux, AppContai
 
 | Location | Purpose |
 |---|---|
-| `config/defaults.json` | Bundled default OpenCode config (provider, models, permissions, MCP, commands) |
+| `config/defaults.json` | Bundled Capix config (provider, models, permissions, MCP, commands) |
 | `config/capix-defaults.json` | Capix-specific defaults (API URLs, sandbox profile, theme, settlement) |
 | `~/.config/capix-code/capix-code.json` | User-level overrides |
 | `capix-code.json` (project-level) | Project-level overrides |
@@ -1224,7 +1212,7 @@ The config registers 36 slash commands, each backed by a markdown template in `c
 
 ### 13.7 MCP zero-config registration
 
-The `config` hook (`src/plugin.ts:717`) programmatically injects the Capix MCP server into the OpenCode config without writing to the user's config file. The broker's access token is injected as `CAPIX_API_KEY` in the MCP server's environment (never persisted to the config file). If the broker isn't logged in yet, the env stays empty and is rehydrated on the next session.
+The `config` hook (`src/plugin.ts:717`) programmatically injects the Capix MCP server into the runtime config without writing to the user's config file. The broker's access token is injected as `CAPIX_API_KEY` in the MCP server's environment (never persisted to the config file). If the broker isn't logged in yet, the env stays empty and is rehydrated on the next session.
 
 ---
 
@@ -1237,9 +1225,9 @@ capix-code (install root)
 ├── bin/
 │   └── capix-code                    ← Rust native launcher (the entry point)
 ├── engine/
-│   └── capix-engine                  ← Bun-based OpenCode engine (rebranded)
+│   └── capix-engine                  ← bundled Bun-based agent engine
 ├── config/
-│   ├── defaults.json                 ← OpenCode provider config
+│   ├── defaults.json                 ← Capix provider config
 │   └── capix-defaults.json           ← Capix-specific defaults
 ├── runtime/
 │   ├── src/
@@ -1278,7 +1266,7 @@ The **Rust launcher** (`launcher/src/main.rs`) is the signed native binary that:
 - Builds a config with live models merged into the provider entry
 - Launches the Bun engine as a child process with the Capix config injected via env vars
 
-The **Bun engine** (the rebranded OpenCode engine) is the coding agent that:
+The **Bun engine** is the coding agent that:
 - Runs the TUI, chat loop, tool execution, and session management
 - Loads the Capix plugin (via `CAPIX_CODE_CONFIG_CONTENT` which embeds the plugin path)
 - Talks to the `CredentialBroker` (in-process) for access tokens
@@ -1288,21 +1276,21 @@ The **Bun engine** (the rebranded OpenCode engine) is the coding agent that:
 ### 14.3 Build pipeline
 
 ```
-scripts/bootstrap.sh        → Clones upstream OpenCode source (pinned to a commit on `dev`)
-scripts/rebrand.sh          → sed substitutions: binary name, config dirs, env prefixes, install refs, display strings
+scripts/bootstrap.sh        → Hydrates pinned agent-engine source
+scripts/rebrand.sh          → Applies Capix product identity and runtime defaults
 scripts/install-config.sh   → Bundles Capix provider config, TUI theme, and brand assets into the upstream tree
 scripts/build.sh            → bun install + upstream build script → standalone binary
 scripts/package-customer.sh  → Stages dist/customer/ with engine + runtime + config
 ```
 
-| Rebrand transformation | From → To |
+| Product identity | Customer value |
 |---|---|
-| Binary name | `opencode` → `capix-code` |
-| Config dirs | `.config/opencode` → `.config/capix-code` |
-| Env var prefixes | `OPENCODE_` → `CAPIX_CODE_` |
-| Config filename | `opencode.json` → `capix-code.json` |
-| Install references | `anomalyco/opencode` → `CapIX-Protocol/Capix-Code` |
-| Display strings | `OpenCode` → `CapixCode` |
+| Binary | `capix-code` |
+| Config directory | `.config/capix-code` |
+| Environment prefix | `CAPIX_CODE_` |
+| Config filename | `capix-code.json` |
+| Repository | `CapIX-Protocol/CapIX-Code` |
+| Display name | `Capix Code` |
 
 ### 14.4 Data flow summary
 

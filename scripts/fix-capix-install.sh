@@ -30,9 +30,9 @@ else
   echo "Warning: postinstall script not found at ${POSTINSTALL}"
 fi
 
-# Fix 3: Re-run the install
-echo "Reinstalling capix-code..."
-npm install -g capix-code@2.2.5
+# Fix 3: Replace the legacy npm install with the verified customer release.
+echo "Installing the verified capix-code customer release..."
+CAPIX_STABLE_VERSION=v2.4.6 bash "$(dirname "$0")/install.sh" latest
 
 # Fix 4: Verify
 echo "Verifying installation..."

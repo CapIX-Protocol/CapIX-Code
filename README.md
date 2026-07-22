@@ -66,7 +66,7 @@ pinned Bun release before building and confirm its version.
 ```bash
 curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14"
 export PATH="$HOME/.bun/bin:$PATH"
-git clone https://github.com/CapIX-Protocol/Capix-Code.git
+git clone https://github.com/CapIX-Protocol/CapIX-Code.git
 cd CapIX-Code
 test "$(bun --version)" = "1.3.14"
 ./scripts/bootstrap.sh
@@ -86,8 +86,8 @@ dist/customer/bin/capix-code doctor
 For CI/cross-platform release builds, tag a version:
 
 ```bash
-git tag v1.2.1
-git push origin v1.2.1
+git tag v2.4.6
+git push origin v2.4.6
 # The CI release job builds the native launcher binary (ubuntu-latest) and
 # packages a source tarball with SHA-256 checksums and SBOM (UNSIGNED draft).
 ```
