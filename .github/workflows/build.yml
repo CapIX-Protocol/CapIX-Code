@@ -266,9 +266,22 @@ jobs:
       - name: Package npm native runtime
         shell: bash
         run: |
+          set -euo pipefail
           node scripts/prepare-npm-platform.mjs "${{ matrix.npm-platform }}" "${{ matrix.arch }}" dist/customer npm-platform
           cd "npm-platform/${{ matrix.npm-platform }}-${{ matrix.arch }}"
           npm pack --pack-destination "$GITHUB_WORKSPACE/release-artifacts"
+          cd "$GITHUB_WORKSPACE"
+          platform_archive="$(find release-artifacts -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          test -n "$platform_archive" || {
+            echo "::error::npm platform archive was not created"
+            exit 1
+          }
+          if command -v sha256sum >/dev/null 2>&1; then
+            digest="$(sha256sum "$platform_archive" | awk '{print $1}')"
+          else
+            digest="$(shasum -a 256 "$platform_archive" | awk '{print $1}')"
+          fi
+          printf '%s  %s\n' "$digest" "$(basename "$platform_archive")" > "$platform_archive.sha256"
       - name: Verify built artifacts
         shell: bash
         run: bash scripts/verify-build.sh release-artifacts
