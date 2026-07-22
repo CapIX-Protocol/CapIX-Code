@@ -181,6 +181,24 @@ function metadata(
   return { capix: { ...(receiptId ? { receiptId } : {}), ...extra } } as SharedV3ProviderMetadata;
 }
 
+
+/** 429/5xx/timeout/stream-stall and gateway retry-classified failures are retryable. */
+function isTransientProviderError(err: unknown): boolean {
+  const e = err as { message?: string; capixCode?: string; retryClass?: 'none' | 'retry' | 'retry-after'; status?: number };
+  if (!e) return false;
+  if (e.retryClass === 'retry' || e.retryClass === 'retry-after') return true;
+  if (e.retryClass === 'none') return false;
+  const code = e.capixCode ?? '';
+  if (code === 'provider_rate_limited' || code === 'inference_route_failed' || code === 'ledger_unavailable' || code === 'STREAM_STALLED') return true;
+  if (typeof e.status === 'number' && (e.status === 429 || e.status >= 500)) return true;
+  const msg = (e.message ?? '').toLowerCase();
+  return (
+    msg.includes('route temporarily unavailable') ||
+    msg.includes(' 429') || msg.includes('status 429') ||
+    msg.includes(' 500') || msg.includes(' 502') || msg.includes(' 503') || msg.includes(' 504') ||
+    msg.includes('timeout') || msg.includes('timed out') || msg.includes('stall')
+  );
+}
 export class CapixLanguageModel implements LanguageModelV3 {
   readonly specificationVersion = 'v3' as const;
   readonly provider = 'capix';
@@ -191,8 +209,34 @@ export class CapixLanguageModel implements LanguageModelV3 {
     private readonly config: CapixAiSdkProviderOptions = {}
   ) {}
 
-  private chunks(options: LanguageModelV3CallOptions): AsyncGenerator<CapixProviderChunk> {
-    return (this.config.transport ?? capixStream)(toCapixInput(this.modelId, options), {
+  private async *chunks(options: LanguageModelV3CallOptions): AsyncGenerator<CapixProviderChunk> {
+    // Transient retry on the plain-run path (the engine core calls this
+    // directly — the invoker's retry never covers it). Retry the whole
+    // stream ONLY before any content: a lane that 500s/stalls at first
+    // contact is retried with backoff; once content flows, errors propagate.
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 1; ; attempt++) {
+      let emittedContent = false;
+      let pendingError: unknown = null;
+      try {
+        yield* this.chunksOnce(options, (chunk) => {
+          if (chunk.type === 'text' || chunk.type === 'reasoning' || chunk.type === 'tool') emittedContent = true;
+        });
+        return;
+      } catch (err) {
+        pendingError = err;
+      }
+      const transient = isTransientProviderError(pendingError);
+      if (emittedContent || !transient || attempt >= MAX_ATTEMPTS || options.abortSignal?.aborted) {
+        throw pendingError;
+      }
+      const backoff = Math.min(8000, 1000 * 2 ** (attempt - 1)) + Math.random() * 500;
+      await new Promise((resolve) => setTimeout(resolve, backoff));
+    }
+  }
+
+  private chunksOnce(options: LanguageModelV3CallOptions, onChunk?: (chunk: CapixProviderChunk) => void): AsyncGenerator<CapixProviderChunk> {
+    const source = (this.config.transport ?? capixStream)(toCapixInput(this.modelId, options), {
       signal: options.abortSignal,
       projectId: this.config.projectId,
       savedPolicyId: this.config.savedPolicyId,
@@ -205,6 +249,10 @@ export class CapixLanguageModel implements LanguageModelV3 {
       temperature: options.temperature,
       meta: { ...DEFAULT_META, ...this.config.meta, client: 'capix-code' },
     });
+    if (!onChunk) return source;
+    return (async function* () {
+      for await (const chunk of source) { onChunk(chunk); yield chunk; }
+    })();
   }
 
   async doStream(options: LanguageModelV3CallOptions) {
