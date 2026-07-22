@@ -36,8 +36,8 @@ export interface CapixAiSdkProviderOptions {
 const DEFAULT_META: CapixClientMeta = {
   releaseId: 'bundled',
   client: 'capix-code',
-  clientVersion: '2.4.5',
-  pluginVersion: '2.4.5',
+  clientVersion: '2.4.6',
+  pluginVersion: '2.4.6',
   acpVersion: '1',
 };
 
