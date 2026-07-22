@@ -63,7 +63,7 @@ export function createSharedTools(ctx: SharedToolContext): ToolDefinition[] {
         'Deploy mode: convert an approved architecture plan into workloads and dispatch them through the smart router.',
       riskClass: 'billing',
       alwaysRequiresApproval: true,
-      async execute(args) {
+      async execute(_args) {
         const plan = architect.getCurrentPlan();
         if (!plan) return { output: 'No approved plan. Run capix_architect first.', isError: true };
         const result = await deployer.deploy(plan, {
@@ -115,7 +115,7 @@ export function createSharedTools(ctx: SharedToolContext): ToolDefinition[] {
       description: 'MVP deploy: deploy an approved MVP plan.',
       riskClass: 'billing',
       alwaysRequiresApproval: true,
-      async execute(args) {
+      async execute(_args) {
         const plan = mvpPlanner.getCurrentPlan();
         if (!plan) return { output: 'No approved MVP plan. Run capix_mvp_architect first.', isError: true };
         const result = await mvpDeployer.deploy(plan, { onEvent: () => undefined });
