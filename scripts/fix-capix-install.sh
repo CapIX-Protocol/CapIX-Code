@@ -32,7 +32,7 @@ fi
 
 # Fix 3: Replace the legacy npm install with the verified customer release.
 echo "Installing the verified capix-code customer release..."
-CAPIX_STABLE_VERSION=v2.4.13 bash "$(dirname "$0")/install.sh" latest
+CAPIX_STABLE_VERSION=v2.4.14 bash "$(dirname "$0")/install.sh" latest
 
 # Fix 4: Verify
 echo "Verifying installation..."

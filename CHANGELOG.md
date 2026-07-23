@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.14] - 2026-07-23
+
+- Fixed the Windows release smoke test to invoke `npm.cmd`, allowing the
+  fail-closed cross-platform release pipeline to publish verified binaries.
+- Made `read_file` return a bounded directory listing when an agent supplies a
+  directory path instead of failing with `EISDIR`.
+
 ## [2.4.13] - 2026-07-23
 ### Changed
 - Inject real bounded source excerpts—not only filenames and scores—into every repository-aware coding turn.

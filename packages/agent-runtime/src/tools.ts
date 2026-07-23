@@ -12,7 +12,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, resolve, sep } from 'node:path';
 import type { ToolRiskClass } from './modes.js';
 
@@ -107,12 +107,36 @@ export function createBuiltinTools(): ToolDefinition[] {
   return [
     {
       name: 'read_file',
-      description: 'Read a file from the workspace.',
+      description:
+        'Read a workspace file. If the path is a directory, return a bounded directory listing instead of failing.',
       riskClass: 'read',
       async execute(args, ctx) {
-        const path = resolveWorkspacePath(ctx.workspaceRoot, String(args.path ?? ''));
+        const requestedPath = String(args.path ?? '').trim() || '.';
+        const path = resolveWorkspacePath(ctx.workspaceRoot, requestedPath);
+        const entry = await stat(path);
+        if (entry.isDirectory()) {
+          const discoveredEntries = (await readdir(path, { withFileTypes: true }))
+            .filter((item) => !item.name.startsWith('.'))
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .slice(0, 501);
+          const truncated = discoveredEntries.length > 500;
+          const entries = discoveredEntries.slice(0, 500);
+          return {
+            output: [
+              `${requestedPath} is a directory. Entries:`,
+              ...(entries.length
+                ? entries.map((item) => `${item.isDirectory() ? 'directory' : 'file'}\t${item.name}`)
+                : ['(empty directory)']),
+            ].join('\n'),
+            metadata: {
+              kind: 'directory',
+              count: entries.length,
+              truncated,
+            },
+          };
+        }
         const content = await readFile(path, 'utf8');
-        return { output: content };
+        return { output: content, metadata: { kind: 'file' } };
       },
     },
     {

@@ -20,6 +20,7 @@ const extension = process.platform === 'win32' ? 'zip' : 'tar.gz';
 const archiveName = `capix-code-${packageVersion}-${platform}-${arch}-unsigned.${extension}`;
 const archive = join(releaseArtifacts, archiveName);
 const checksum = `${archive}.sha256`;
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 if (!existsSync(archive) || !existsSync(checksum)) {
   throw new Error(`native release artifact or checksum is missing: ${archiveName}`);
@@ -37,7 +38,7 @@ try {
   cpSync(checksum, join(stagedRelease, basename(checksum)));
 
   const npmCache = join(root, 'npm-cache');
-  execFileSync('npm', ['pack', '--pack-destination', packDir], {
+  execFileSync(npmCommand, ['pack', '--pack-destination', packDir], {
     cwd: resolve('.'),
     env: { ...process.env, npm_config_cache: npmCache },
     stdio: 'inherit',
@@ -53,7 +54,7 @@ try {
     npm_config_cache: npmCache,
   };
   execFileSync(
-    'npm',
+    npmCommand,
     ['install', '--ignore-scripts=false', '--prefix', prefix, join(packDir, meta)],
     {
       env,
