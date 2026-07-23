@@ -25,7 +25,7 @@ describe('release identity gates', () => {
     expect(source).toContain('agentRuntimeVersion');
     expect(source).toContain('agentRuntimeReportedVersion');
 
-    const result = spawnSync('node', ['scripts/check-release-consistency.mjs', '2.4.12'], {
+    const result = spawnSync('node', ['scripts/check-release-consistency.mjs', '2.4.13'], {
       cwd: resolve('.'),
       encoding: 'utf8',
     });

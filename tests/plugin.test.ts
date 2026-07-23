@@ -104,11 +104,21 @@ describe('Capix evidence-first system context', () => {
   it('includes repository inspection rules and retrieved workspace evidence', () => {
     const prompt = formatCapixSystemContext({
       intelligence: { activePlan: 'upgrade IDE' },
-      codebase: { type: 'retrieval', files: [{ path: 'src/ide.ts', reason: 'entry point' }] },
+      codebase: {
+        type: 'retrieval',
+        files: [
+          {
+            path: 'src/ide.ts',
+            reason: 'entry point',
+            content: 'export function activateCapixIde() {}',
+          },
+        ],
+      },
       skill: { id: 'architecture', reason: 'matched plan', systemPrompt: 'Map boundaries first.' },
     });
     expect(prompt).toContain('A directory listing alone is not codebase analysis');
     expect(prompt).toContain('src/ide.ts');
+    expect(prompt).toContain('activateCapixIde');
     expect(prompt).toContain('Map boundaries first.');
     expect(prompt).toContain('never present capix/auto as the physical model');
   });

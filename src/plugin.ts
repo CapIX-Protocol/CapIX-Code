@@ -131,7 +131,7 @@ export function isAutonomousMode(env: NodeJS.ProcessEnv = process.env): boolean 
   return env.CAPIX_AUTONOMOUS === '1';
 }
 
-export const CAPIX_PLUGIN_VERSION = '2.4.12';
+export const CAPIX_PLUGIN_VERSION = '2.4.13';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */
@@ -845,6 +845,59 @@ function extractActiveFiles(indexer: CodebaseIndexer, limit = 15): string[] {
 }
 
 /**
+ * Read a bounded set of high-signal repository files for broad questions
+ * such as "map this codebase". A structural orientation is useful, but a
+ * coding agent must also see actual manifests, entry points, docs, and tests
+ * before it can make repository-specific claims.
+ */
+function buildOrientationEvidence(indexer: CodebaseIndexer): Array<{
+  path: string;
+  reason: string;
+  content: string;
+}> {
+  const index = indexer.getIndex();
+  if (!index) return [];
+
+  const candidates = [...index.files.values()]
+    .map((file) => ({ file, path: indexer.getRelativePath(file.path) }))
+    .filter(({ path }) =>
+      /(^|\/)(readme[^/]*|package\.json|cargo\.toml|pyproject\.toml|go\.mod|[^/]*(?:config|entry|main|index)\.[^/]+|[^/]*\.test\.[^/]+)$/i.test(
+        path,
+      ),
+    )
+    .sort((a, b) => {
+      const rank = (path: string) => {
+        if (/^readme/i.test(path)) return 0;
+        if (/^(package\.json|cargo\.toml|pyproject\.toml|go\.mod)$/i.test(path)) return 1;
+        if (/(^|\/)(main|index|entry)\.[^/]+$/i.test(path)) return 2;
+        if (/\.test\.[^/]+$/i.test(path)) return 3;
+        return 4;
+      };
+      return rank(a.path) - rank(b.path) || a.path.localeCompare(b.path);
+    });
+
+  const evidence: Array<{ path: string; reason: string; content: string }> = [];
+  let remaining = 12_000;
+  for (const candidate of candidates.slice(0, 10)) {
+    if (remaining <= 0) break;
+    try {
+      const raw = readFileSync(candidate.file.path, 'utf8');
+      const content = raw.slice(0, Math.min(2_500, remaining));
+      if (!content.trim()) continue;
+      evidence.push({
+        path: candidate.path,
+        reason: 'automatic repository orientation',
+        content,
+      });
+      remaining -= content.length;
+    } catch {
+      // Binary, removed, or transient files do not block the turn.
+    }
+  }
+  return evidence;
+}
+
+/**
  * Real plugin factory. Returns Hooks wired to the broker-backed provider,
  * the OAuth/auth bridge, and the workspace sandbox.
  *
@@ -1060,14 +1113,23 @@ export const plugin: Plugin = async (
                 reason: file.reason,
                 score: file.score,
                 lines: file.lines,
+                content: file.content,
               })),
               symbols: retrieved.symbols,
               sources: retrieved.sources,
               totalTokens: retrieved.totalTokens,
             }
-          : { type: 'orientation', summary: await contextRetriever.getOrientation() };
+          : {
+              type: 'orientation',
+              summary: await contextRetriever.getOrientation(),
+              evidence: buildOrientationEvidence(codebaseIndexer),
+            };
       } else {
-        codebaseContext = { type: 'orientation', summary: await contextRetriever.getOrientation() };
+        codebaseContext = {
+          type: 'orientation',
+          summary: await contextRetriever.getOrientation(),
+          evidence: buildOrientationEvidence(codebaseIndexer),
+        };
       }
     } catch (err) {
       logger.warn('capix plugin: system codebase injection failed', {
