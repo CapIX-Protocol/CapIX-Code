@@ -10,15 +10,38 @@
  * Protocol version: 1
  */
 
-import { CapixAgentRuntime, createAcpServer, type AcpServer } from '@capix/agent-runtime';
+import {
+  CapixAgentRuntime,
+  createAcpServer,
+  type AcpServer,
+  type ModelInvoker,
+} from '@capix/agent-runtime';
+import { CAPIX_ACP_VERSION, CAPIX_PLUGIN_VERSION, createRuntimeModelInvoker } from '../plugin.js';
 
 let server: AcpServer | null = null;
 
+export function createAcpRuntime(options: { modelInvoker?: ModelInvoker } = {}): CapixAgentRuntime {
+  const version = process.env.CAPIX_CODE_VERSION?.trim() || CAPIX_PLUGIN_VERSION;
+  const meta = {
+    releaseId: process.env.CAPIX_RELEASE_ID?.trim() || 'bundled',
+    client: 'capix-code' as const,
+    clientVersion: version,
+    pluginVersion: CAPIX_PLUGIN_VERSION,
+    acpVersion: CAPIX_ACP_VERSION,
+  };
+  return new CapixAgentRuntime({
+    dbPath: process.env.CAPIX_AGENT_RUNTIME_DB,
+    workspaceRoot: process.cwd(),
+    // The IDE/ACP surface must use the exact same broker-backed canonical
+    // Capix stream as the TUI and autonomous runner. Without this injection
+    // every message deterministically failed with "no model invoker".
+    modelInvoker: options.modelInvoker ?? createRuntimeModelInvoker(meta),
+  });
+}
+
 /// Start the ACP server reading from stdin and writing to stdout.
 export function startAcpServer(): void {
-  const runtime = new CapixAgentRuntime({
-    dbPath: process.env.CAPIX_AGENT_RUNTIME_DB,
-  });
+  const runtime = createAcpRuntime();
   server = createAcpServer(runtime);
   server.start();
 }

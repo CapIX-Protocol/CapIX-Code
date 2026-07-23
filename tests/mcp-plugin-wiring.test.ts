@@ -1,8 +1,15 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { PluginInput } from '@opencode-ai/plugin';
+
+const { mockGetAccessToken } = vi.hoisted(() => ({
+  mockGetAccessToken: vi.fn().mockResolvedValue({
+    token: 'capix_test_access_after_login',
+    expiresAt: new Date(Date.now() + 60_000),
+  }),
+}));
 
 // Mock logger to keep test output clean.
 vi.mock('../src/logger', () => ({
@@ -16,6 +23,7 @@ vi.mock('../src/broker', () => ({
     authorizationUrl: vi.fn().mockResolvedValue('https://api.capix.network/v1/auth/authorize'),
     exchangeCode: vi.fn().mockResolvedValue({ type: 'success' as const }),
     registerApiKey: vi.fn().mockResolvedValue({ type: 'success' as const, key: 'cpk_test' }),
+    getAccessToken: mockGetAccessToken,
   })),
 }));
 
@@ -49,6 +57,7 @@ const STUB_TOOL_COUNT = 59;
 /** Minimal MCP stdio server: answers `initialize` and `tools/list`. */
 const STUB_SERVER = String.raw`
 const readline = require('node:readline');
+const fs = require('node:fs');
 const tools = Array.from({ length: ${STUB_TOOL_COUNT} }, (_, i) => ({
   name: 'capix_tool_' + i,
   description: 'stub tool',
@@ -58,6 +67,9 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   if (!line.trim()) return;
   const req = JSON.parse(line);
   if (req.method === 'initialize') {
+    if (process.env.STUB_TOKEN_CAPTURE) {
+      fs.writeFileSync(process.env.STUB_TOKEN_CAPTURE, process.env.CAPIX_API_KEY || '');
+    }
     process.stdout.write(JSON.stringify({
       jsonrpc: '2.0',
       id: req.id,
@@ -72,6 +84,7 @@ process.stdin.on('end', () => process.exit(0));
 
 const stubDir = mkdtempSync(join(tmpdir(), 'capix-plugin-mcp-'));
 const stubEntry = join(stubDir, 'capix-mcp.js');
+const tokenCapture = join(stubDir, 'token.txt');
 writeFileSync(stubEntry, STUB_SERVER);
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
@@ -86,6 +99,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<vo
 afterAll(() => {
   getMcpSupervisor().stop();
   delete process.env.CAPIX_MCP_PATH;
+  delete process.env.STUB_TOKEN_CAPTURE;
   rmSync(stubDir, { recursive: true, force: true });
 });
 
@@ -106,6 +120,30 @@ describe('P0 MCP connected state — customer runtime wiring', () => {
     const line = renderStatusLine(sessionStatus.snapshot());
     expect(line).toContain(`mcp connected (${STUB_TOOL_COUNT} tools)`);
     expect(line).not.toContain('disconnected');
+  });
+
+  it('reconnects MCP with the broker token immediately after API-key login', async () => {
+    process.env.CAPIX_MCP_PATH = stubEntry;
+    process.env.STUB_TOKEN_CAPTURE = tokenCapture;
+    const hooks = await plugin({} as unknown as PluginInput);
+    const api = hooks.auth?.methods.find((method) => method.type === 'api');
+    expect(api?.type).toBe('api');
+    if (!api || api.type !== 'api' || !api.authorize) throw new Error('API auth method missing');
+
+    await api.authorize({ apiKey: 'cpxk_customer_key' });
+
+    await waitFor(() => {
+      try {
+        return (
+          readFileSync(tokenCapture, 'utf8') === 'capix_test_access_after_login' &&
+          sessionStatus.snapshot().mcp.state === 'connected'
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(mockGetAccessToken).toHaveBeenCalled();
+    expect(sessionStatus.snapshot().mcp.state).toBe('connected');
   });
 
   it('a missing MCP entry point leaves the status disconnected and never throws', async () => {

@@ -120,10 +120,6 @@ TCSONFIG
   cat > "$ARTIFACT/mcp/capix-mcp.js" << 'MCPWRAPPER'
 #!/usr/bin/env node
 import net from "node:net";
-if (!process.env.CAPIX_API_KEY) {
-  console.error("Capix MCP requires the short-lived token supplied by Capix Code.");
-  process.exit(1);
-}
 const brokerAddress = process.platform === "win32"
   ? "\\\\.\\pipe\\capix-code-broker"
   : "/tmp/capix-code-broker.sock";
@@ -148,6 +144,10 @@ function brokerToken() {
     });
   });
 }
+// Start while signed out so the MCP client remains registered. Auth is
+// resolved lazily after a protected request returns 401; once browser login
+// succeeds, the next tool call obtains a fresh short-lived broker token and
+// retries without requiring Capix Code to restart.
 const nativeFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   let response = await nativeFetch(input, init);

@@ -251,6 +251,29 @@ function startMcpSupervision(): void {
   }
 }
 
+/**
+ * Rehydrate MCP immediately after an interactive or API-key login succeeds.
+ *
+ * Plugin startup is allowed to happen while signed out. In that state the
+ * supervisor starts without a credential so the UI can report honest health,
+ * but a successful login must replace that child process with one carrying the
+ * broker's newly-issued short-lived access token. Waiting for an application
+ * restart here left first-run customers permanently disconnected.
+ */
+async function reconnectMcpAfterAuth(broker: CredentialBroker): Promise<void> {
+  const entry = mcpServerEntry();
+  if (!existsSync(entry)) return;
+  try {
+    const access = await broker.getAccessToken();
+    if (!access?.token) return;
+    getMcpSupervisor().reconnect(entry, { CAPIX_API_KEY: access.token });
+  } catch (err) {
+    logger.warn('capix plugin: MCP reconnect after authentication failed', {
+      error: (err as Error)?.message,
+    });
+  }
+}
+
 function getSandbox(opts: CapixPluginOptions): WorkspaceSandbox {
   if (!sandboxInstance) {
     const profile = opts.sandbox ?? 'restricted';
@@ -1720,6 +1743,7 @@ export const plugin: Plugin = async (
               async callback() {
                 const result = await broker.exchangeCode();
                 if (result.type === 'success') {
+                  await reconnectMcpAfterAuth(broker);
                   return result;
                 }
                 return { type: 'failed' as const };
@@ -1734,6 +1758,9 @@ export const plugin: Plugin = async (
             const key = (inputs?.['apiKey'] as string) ?? '';
             if (!key) return { type: 'failed' as const };
             const result = await broker.registerApiKey(key);
+            if (result.type === 'success') {
+              await reconnectMcpAfterAuth(broker);
+            }
             return result;
           },
         },

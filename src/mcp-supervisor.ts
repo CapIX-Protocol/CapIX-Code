@@ -184,6 +184,9 @@ export class McpSupervisor {
   }
 
   reconnect(mcpPath: string, env: Record<string, string>): void {
+    // Cancel any delayed restart belonging to the pre-auth child before
+    // replacing it with the newly credentialed process.
+    this.epoch++;
     if (this.process) {
       try {
         this.process.kill('SIGTERM');
