@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.15] - 2026-07-23
+
+- Made the Windows npm release smoke invoke `npm.cmd` through the system shell,
+  as required by Node 22's process-spawn behavior.
+
 ## [2.4.14] - 2026-07-23
 
 - Fixed the Windows release smoke test to invoke `npm.cmd`, allowing the

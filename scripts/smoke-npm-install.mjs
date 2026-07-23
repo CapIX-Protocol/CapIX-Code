@@ -41,6 +41,7 @@ try {
   execFileSync(npmCommand, ['pack', '--pack-destination', packDir], {
     cwd: resolve('.'),
     env: { ...process.env, npm_config_cache: npmCache },
+    shell: process.platform === 'win32',
     stdio: 'inherit',
   });
   const meta = readdirSync(packDir).find((name) => /^capix-code-.*\.tgz$/.test(name));
@@ -58,6 +59,7 @@ try {
     ['install', '--ignore-scripts=false', '--prefix', prefix, join(packDir, meta)],
     {
       env,
+      shell: process.platform === 'win32',
       stdio: 'inherit',
     }
   );

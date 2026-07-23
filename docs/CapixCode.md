@@ -64,13 +64,13 @@ Capix Code ships as unsigned customer builds. **Always verify the SHA-256 checks
 The `scripts/install.sh` installer resolves a pinned version, downloads the platform-appropriate tarball, verifies the SHA-256 checksum, and stages the runtime:
 
 ```bash
-CAPIX_STABLE_VERSION=v2.4.14 bash scripts/install.sh latest
+CAPIX_STABLE_VERSION=v2.4.15 bash scripts/install.sh latest
 ```
 
 Or pin a specific version:
 
 ```bash
-bash scripts/install.sh v2.4.14
+bash scripts/install.sh v2.4.15
 ```
 
 The installer:
@@ -113,7 +113,7 @@ Direct download from [GitHub Releases](https://github.com/CapIX-Protocol/CapIX-C
 
 ```bash
 set -euo pipefail
-CODE_VERSION=v2.4.14
+CODE_VERSION=v2.4.15
 CODE_ARCH=arm64
 CODE_NAME="capix-code-${CODE_VERSION#v}-darwin-${CODE_ARCH}-unsigned"
 CODE_URL="https://github.com/CapIX-Protocol/CapIX-Code/releases/download/${CODE_VERSION}"

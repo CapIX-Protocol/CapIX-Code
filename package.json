@@ -1,6 +1,6 @@
 {
   "name": "capix-code",
-  "version": "2.4.14",
+  "version": "2.4.15",
   "description": "Capix Code — decentralized AI coding agent with GPU marketplace",
   "license": "Apache-2.0",
   "type": "module",
