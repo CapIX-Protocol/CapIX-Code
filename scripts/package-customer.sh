@@ -20,10 +20,11 @@ else
   tar -C "$ROOT/dist" -czf "$ARCHIVE" customer
 fi
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
+  DIGEST="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
 else
-  shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+  DIGEST="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
 fi
+printf '%s  %s\n' "$DIGEST" "$(basename "$ARCHIVE")" > "$ARCHIVE.sha256"
 printf '%s\n' "$(git -C "$ROOT" rev-parse HEAD)" > "$OUT/$NAME.source-commit.txt"
 node "$ROOT/scripts/write-release-entry.mjs" "$VERSION" "$PLATFORM" "$ARCH" "$ARCHIVE"
 echo "Verified release artifact: $ARCHIVE"

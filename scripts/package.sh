@@ -29,7 +29,8 @@ tar -czf "$OUTPUT_DIR/$ARTIFACT_NAME.tar.gz" \
 
 # 3. Generate SHA-256
 echo "Generating SHA-256..."
-shasum -a 256 "$OUTPUT_DIR/$ARTIFACT_NAME.tar.gz" > "$OUTPUT_DIR/$ARTIFACT_NAME.tar.gz.sha256"
+DIGEST="$(shasum -a 256 "$OUTPUT_DIR/$ARTIFACT_NAME.tar.gz" | awk '{print $1}')"
+printf '%s  %s\n' "$DIGEST" "$ARTIFACT_NAME.tar.gz" > "$OUTPUT_DIR/$ARTIFACT_NAME.tar.gz.sha256"
 
 # 4. Provenance
 cat > "$OUTPUT_DIR/$ARTIFACT_NAME.provenance.json" << EOF

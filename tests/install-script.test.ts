@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const roots: string[] = [];
 const script = fileURLToPath(new URL('../scripts/install.sh', import.meta.url));
+const customerPackager = fileURLToPath(new URL('../scripts/package-customer.sh', import.meta.url));
+const legacyPackager = fileURLToPath(new URL('../scripts/package.sh', import.meta.url));
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -57,6 +59,15 @@ function run(f: ReturnType<typeof fixture>, version = f.version, env?: Record<st
 }
 
 describe('immutable Capix Code installer', () => {
+  it('publishes portable checksum sidecars without CI workspace paths', () => {
+    const customerSource = readFileSync(customerPackager, 'utf8');
+    const legacySource = readFileSync(legacyPackager, 'utf8');
+    expect(customerSource).toContain('"$(basename "$ARCHIVE")"');
+    expect(legacySource).toContain('"$ARTIFACT_NAME.tar.gz"');
+    expect(customerSource).not.toMatch(/(?:sha256sum|shasum[^\n]+) "\$ARCHIVE" > "\$ARCHIVE\.sha256"/);
+    expect(legacySource).not.toMatch(/shasum[^\n]+> "\$OUTPUT_DIR\/\$ARTIFACT_NAME\.tar\.gz\.sha256"/);
+  });
+
   it('rejects latest when no immutable stable version is pinned', () => {
     const f = fixture((artifact, digest) => `${digest}  ${artifact}\n`);
     const result = run(f, 'latest');
