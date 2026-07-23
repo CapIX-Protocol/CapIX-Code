@@ -17,12 +17,15 @@ fi
 cd "$CAPIX_CODE_DIR"
 
 echo "▸ Building capix-code standalone binary…"
-# Install only the customer runtime workspace and its transitive workspace
-# dependencies. The pinned engine monorepo also contains unrelated web-console
-# workspaces; installing the entire monorepo makes the CLI release depend on
-# their short-lived preview packages even though they are never compiled or
-# shipped with Capix Code.
-"$BUN" install --filter "./packages/capix-code"
+# The native engine embeds packages/app, so its build dependencies are part of
+# the customer runtime even though the engine package does not declare the app
+# as a package dependency. Install both explicit build roots and their
+# transitive workspace dependencies. Keep the filter bounded: installing the
+# entire monorepo also pulls unrelated preview workspaces whose short-lived
+# registry packages can make an otherwise reproducible customer build fail.
+"$BUN" install \
+  --filter "./packages/capix-code" \
+  --filter "./packages/app"
 
 # macOS enforces the Team ID of the host process when loading native Node
 # add-ons. Package-manager caches can preserve a vendor signature that is

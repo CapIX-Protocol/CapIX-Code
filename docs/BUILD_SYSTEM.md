@@ -76,7 +76,7 @@ Builds every package and produces one `release-artifacts/` directory:
 ```bash
 scripts/build-all.sh                     # everything
 scripts/build-all.sh --skip-ide          # skip the heavy IDE build
-scripts/build-all.sh --upload v2.4.18    # upload to the GitHub release
+scripts/build-all.sh --upload v2.4.19    # upload to the GitHub release
 ```
 
 Package checkouts resolve from `CAPIX_CODE_DIR`, `CAPIX_MCP_DIR`,
@@ -115,7 +115,7 @@ upload.
 To yank a bad published release:
 
 ```bash
-gh workflow run build.yml -f rollback_tag=v2.4.18
+gh workflow run build.yml -f rollback_tag=v2.4.19
 ```
 
 The rollback job marks the bad release as a pre-release with a `YANKED` note

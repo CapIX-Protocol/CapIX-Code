@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.19] - 2026-07-23
+
+- Install the embedded web application's build dependencies alongside the
+  native engine workspace in clean release environments.
+- Keep dependency installation bounded to the two customer runtime build roots
+  so unrelated preview workspaces cannot block a release.
+
 ## [2.4.18] - 2026-07-23
 
 - Serialize refresh-token rotation across Capix Code processes so concurrent
