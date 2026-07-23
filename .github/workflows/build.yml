@@ -64,6 +64,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -94,9 +96,8 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────
   # Binary builds — one native runner per platform/arch so no
-  # cross-compilation is involved. Artifacts are signed when certificates
-  # are provisioned as repository secrets; otherwise they are published
-  # with the explicit `-unsigned` flavor.
+  # cross-compilation is involved. This release line is explicitly unsigned;
+  # every artifact therefore carries the `-unsigned` flavor.
   # ────────────────────────────────────────────────────────────────────
   build:
     name: Build ${{ matrix.platform }}-${{ matrix.arch }}
@@ -129,11 +130,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-      APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && 'true' || 'false' }}
-      APPLE_NOTARIZATION: ${{ secrets.APPLE_ID != '' && 'true' || 'false' }}
-      WINDOWS_SIGNING: ${{ secrets.WINDOWS_CERTIFICATE != '' && 'true' || 'false' }}
+      # v2.4.10 is an explicitly unsigned customer release. Re-enable signing
+      # only in a later release that also teaches manifests/installers to
+      # select signed artifacts consistently.
+      APPLE_SIGNING: 'false'
+      APPLE_NOTARIZATION: 'false'
+      WINDOWS_SIGNING: 'false'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -158,6 +164,11 @@ jobs:
             node scripts/check-release-consistency.mjs "$package_version"
           fi
           echo "version=$package_version" >> "$GITHUB_OUTPUT"
+      - name: Prove exact immutable release source
+        id: source
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: bash scripts/verify-release-source.sh "${{ github.ref_name }}"
       - name: Verify overlay
         run: |
           npm run compile
@@ -250,6 +261,10 @@ jobs:
 
       - name: Packaged MCP protocol smoke test
         run: node scripts/smoke-mcp.mjs dist/customer
+      - name: Packaged MCP signed-out registration smoke test
+        run: node scripts/smoke-mcp.mjs dist/customer
+        env:
+          CAPIX_MCP_SMOKE_SIGNED_OUT: '1'
       - name: Native launcher smoke test
         shell: bash
         run: |
@@ -261,7 +276,8 @@ jobs:
       - name: Package and statically verify
         shell: bash
         env:
-          CAPIX_ARTIFACT_FLAVOR: ${{ (matrix.platform == 'darwin' && env.APPLE_SIGNING == 'true') || (matrix.platform == 'win32' && env.WINDOWS_SIGNING == 'true') && 'signed' || 'unsigned' }}
+          CAPIX_ARTIFACT_FLAVOR: unsigned
+          CAPIX_SOURCE_SHA: ${{ steps.source.outputs.sha || github.sha }}
         run: bash scripts/package-customer.sh "${{ steps.version.outputs.version }}" "${{ matrix.platform }}" "${{ matrix.arch }}"
       - name: Package npm native runtime
         shell: bash
@@ -282,6 +298,8 @@ jobs:
             digest="$(shasum -a 256 "$platform_archive" | awk '{print $1}')"
           fi
           printf '%s  %s\n' "$digest" "$(basename "$platform_archive")" > "$platform_archive.sha256"
+      - name: Install final npm package against final native archive
+        run: node scripts/smoke-npm-install.mjs release-artifacts
       - name: Verify built artifacts
         shell: bash
         run: bash scripts/verify-build.sh release-artifacts
@@ -303,6 +321,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove exact immutable release source
+        id: source
+        shell: bash
+        run: bash scripts/verify-release-source.sh "${{ github.ref_name }}"
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -329,7 +353,7 @@ jobs:
             --entries release-artifacts \
             --base-url https://github.com/CapIX-Protocol/CapIX-Code/releases/download \
             --stable-version "${{ github.ref_name }}" \
-            --source-sha "${{ github.sha }}" \
+            --source-sha "${{ steps.source.outputs.sha }}" \
             --launcher-version "$release_version" \
             --engine-version 1.17.18 \
             --plugin-version "$release_version" \
@@ -342,7 +366,7 @@ jobs:
           npx --yes npm@10.9.4 sbom --sbom-format spdx > release-artifacts/sbom.spdx.json
           jq -n \
             --arg tag "${{ github.ref_name }}" \
-            --arg sourceSha "${{ github.sha }}" \
+            --arg sourceSha "${{ steps.source.outputs.sha }}" \
             --arg workflow "${{ github.workflow }}" \
             --arg runId "${{ github.run_id }}" \
             '{schemaVersion:1, product:"capix-code", tag:$tag, sourceSha:$sourceSha, builder:"github-actions", workflow:$workflow, runId:$runId}' \
@@ -373,6 +397,12 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove exact immutable release source
+        id: source
+        shell: bash
+        run: bash scripts/verify-release-source.sh "${{ github.ref_name }}"
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -396,7 +426,7 @@ jobs:
             Artifacts built without provisioned certificates carry the `-unsigned` flavor in
             their file name. Verify the adjacent SHA-256 file before use.
             Each platform was built and smoke-tested on its native GitHub-hosted runner.
-            Source commit: `${{ github.sha }}`
+            Source commit: `${{ steps.source.outputs.sha }}`
 
             Rollback: `gh workflow run build.yml -f rollback_tag=${{ github.ref_name }}`
 

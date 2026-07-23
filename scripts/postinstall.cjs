@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-if (process.env.CI || process.env.GITHUB_ACTIONS) {
+if ((process.env.CI || process.env.GITHUB_ACTIONS) && process.env.CAPIX_FORCE_POSTINSTALL_SMOKE !== '1') {
   process.exit(0);
 }
 const VERSION = require('../package.json').version;
@@ -12,9 +12,10 @@ const plat = process.platform === 'win32' ? 'win32' : process.platform;
 const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
 const ext = process.platform === 'win32' ? 'zip' : 'tar.gz';
 const NAME = `capix-code-${VERSION}-${plat}-${arch}-unsigned`;
-const URL = `https://github.com/CapIX-Protocol/CapIX-Code/releases/download/v${VERSION}/${NAME}.${ext}`;
+const RELEASE_BASE_URL = (process.env.CAPIX_RELEASE_BASE_URL || 'https://github.com/CapIX-Protocol/CapIX-Code/releases/download').replace(/\/$/, '');
+const URL = `${RELEASE_BASE_URL}/v${VERSION}/${NAME}.${ext}`;
 const CHECKSUM_URL = `${URL}.sha256`;
-const ROOT = path.join(os.homedir(), '.capix-code');
+const ROOT = process.env.CAPIX_CODE_RUNTIME_DIR || path.join(os.homedir(), '.capix-code');
 const TMP = path.join(os.tmpdir(), `capix-install-${VERSION}-${process.pid}`);
 const archivePath = path.join(TMP, `${NAME}.${ext}`);
 fs.rmSync(TMP, { recursive: true, force: true });

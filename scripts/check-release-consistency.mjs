@@ -13,6 +13,16 @@ const runtimeVersion = JSON.parse(
 const providerVersion = JSON.parse(
   await readFile(resolve(root, 'packages/runtime-provider/package.json'), 'utf8')
 ).version;
+const agentRuntimeVersion = JSON.parse(
+  await readFile(resolve(root, 'packages/agent-runtime/package.json'), 'utf8')
+).version;
+const agentRuntimeSource = await readFile(
+  resolve(root, 'packages/agent-runtime/src/runtime.ts'),
+  'utf8'
+);
+const agentRuntimeReportedVersion = agentRuntimeSource.match(
+  /RUNTIME_VERSION\s*=\s*'([^']+)'/
+)?.[1];
 const cargo = await readFile(resolve(root, 'launcher/Cargo.toml'), 'utf8');
 const cargoVersion = cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
 const releaseVersion = JSON.parse(
@@ -30,6 +40,8 @@ const versions = {
   packageVersion,
   runtimeVersion,
   providerVersion,
+  agentRuntimeVersion,
+  agentRuntimeReportedVersion,
   cargoVersion,
   releaseVersion,
   pluginVersion,

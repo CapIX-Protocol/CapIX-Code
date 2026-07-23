@@ -86,10 +86,12 @@ dist/customer/bin/capix-code doctor
 For CI/cross-platform release builds, tag a version:
 
 ```bash
-git tag v2.4.9
-git push origin v2.4.9
-# The CI release job builds the native launcher binary (ubuntu-latest) and
-# packages a source tarball with SHA-256 checksums and SBOM (UNSIGNED draft).
+git tag -a v2.4.10 -m "Capix Code v2.4.10"
+git push origin v2.4.10
+# The release pipeline builds unsigned customer runtimes natively on macOS
+# arm64/x64, Linux arm64/x64 and Windows x64. It publishes adjacent SHA-256
+# sidecars, an SBOM, provenance and an immutable release manifest only after
+# every runner installs and smokes the final npm package against its archive.
 ```
 
 ## Config

@@ -8,13 +8,15 @@ const version = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8')
 ).version;
 const entry = resolve(root, 'mcp/capix-mcp.js');
+const childEnv = {
+  ...process.env,
+  CAPIX_BASE_URL: 'https://www.capix.network',
+};
+if (process.env.CAPIX_MCP_SMOKE_SIGNED_OUT === '1') delete childEnv.CAPIX_API_KEY;
+else childEnv.CAPIX_API_KEY = 'cpxk_packaged_mcp_release_smoke';
 const child = spawn(process.execPath, [entry, 'server', '--stdio'], {
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: {
-    ...process.env,
-    CAPIX_API_KEY: 'cpxk_packaged_mcp_release_smoke',
-    CAPIX_BASE_URL: 'https://www.capix.network',
-  },
+  env: childEnv,
 });
 const stderr = [];
 child.stderr.setEncoding('utf8');

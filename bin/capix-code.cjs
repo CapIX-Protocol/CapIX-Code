@@ -12,9 +12,10 @@ const suffix = process.platform === 'win32' ? '.exe' : '';
 // 3. Home directory: ~/.capix-code (from postinstall binary download)
 const { homedir } = require('node:os');
 const candidates = [
+  process.env.CAPIX_CODE_RUNTIME_DIR,
   join(__dirname, '..', 'dist', 'customer'),
   join(homedir(), '.capix-code'),
-];
+].filter(Boolean);
 
 let root = null;
 for (const candidate of candidates) {

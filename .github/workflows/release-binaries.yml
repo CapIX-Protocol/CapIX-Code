@@ -46,6 +46,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+      - name: Prove exact immutable release source
+        id: source
+        shell: bash
+        run: bash scripts/verify-release-source.sh "${{ inputs.release_tag }}"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -83,6 +90,10 @@ jobs:
         run: bash scripts/build.sh
       - name: Packaged MCP protocol smoke test
         run: node scripts/smoke-mcp.mjs dist/customer
+      - name: Packaged MCP signed-out registration smoke test
+        run: node scripts/smoke-mcp.mjs dist/customer
+        env:
+          CAPIX_MCP_SMOKE_SIGNED_OUT: '1'
       - name: Native launcher smoke test
         shell: bash
         run: |
@@ -93,6 +104,8 @@ jobs:
           fi
       - name: Package and statically verify
         shell: bash
+        env:
+          CAPIX_SOURCE_SHA: ${{ steps.source.outputs.sha }}
         run: bash scripts/package-customer.sh "${{ inputs.version }}" "${{ matrix.platform }}" "${{ matrix.arch }}"
       - name: Package npm native runtime
         shell: bash
@@ -100,6 +113,8 @@ jobs:
           node scripts/prepare-npm-platform.mjs "${{ matrix.npm-platform }}" "${{ matrix.arch }}" dist/customer npm-platform
           cd "npm-platform/${{ matrix.npm-platform }}-${{ matrix.arch }}"
           npm pack --pack-destination "$GITHUB_WORKSPACE/release-artifacts"
+      - name: Install final npm package against final native archive
+        run: node scripts/smoke-npm-install.mjs release-artifacts
       - uses: actions/upload-artifact@v4
         with:
           name: capix-code-${{ matrix.platform }}-${{ matrix.arch }}
@@ -110,6 +125,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+      - name: Prove exact immutable release source
+        shell: bash
+        run: bash scripts/verify-release-source.sh "${{ inputs.release_tag }}"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -138,6 +159,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+      - name: Prove exact immutable release source
+        id: source
+        shell: bash
+        run: bash scripts/verify-release-source.sh "${{ inputs.release_tag }}"
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -161,7 +187,7 @@ jobs:
             --entries release-artifacts \
             --base-url https://github.com/CapIX-Protocol/CapIX-Code/releases/download \
             --stable-version "${{ inputs.release_tag }}" \
-            --source-sha "${{ github.sha }}" \
+            --source-sha "${{ steps.source.outputs.sha }}" \
             --launcher-version "${{ inputs.version }}" \
             --engine-version 1.17.18 \
             --plugin-version "${{ inputs.version }}" \
@@ -174,7 +200,7 @@ jobs:
           npx --yes npm@10.9.4 sbom --sbom-format spdx > release-artifacts/sbom.spdx.json
           jq -n \
             --arg tag "${{ inputs.release_tag }}" \
-            --arg sourceSha "${{ github.sha }}" \
+            --arg sourceSha "${{ steps.source.outputs.sha }}" \
             --arg workflow "${{ github.workflow }}" \
             --arg runId "${{ github.run_id }}" \
             '{schemaVersion:1, product:"capix-code", tag:$tag, sourceSha:$sourceSha, builder:"github-actions", workflow:$workflow, runId:$runId, unsigned:true}' \
@@ -196,7 +222,7 @@ jobs:
 
             These artifacts are unsigned. Verify the adjacent SHA-256 file before use.
             Each platform was built and smoke-tested on its native GitHub-hosted runner.
-            Source commit: `${{ github.sha }}`
+            Source commit: `${{ steps.source.outputs.sha }}`
 
   publish-npm:
     name: Publish npm installer
@@ -209,6 +235,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_tag }}
+          fetch-depth: 0
+      - name: Prove exact immutable release source
+        shell: bash
+        run: bash scripts/verify-release-source.sh "${{ inputs.release_tag }}"
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
