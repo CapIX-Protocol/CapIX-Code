@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.18] - 2026-07-23
+
+- Serialize refresh-token rotation across Capix Code processes so concurrent
+  sessions cannot invalidate an otherwise healthy login.
+- Preserve credentials through transient rate limits, upstream failures, and
+  network errors; clear them only when the server definitively rejects them.
+- Verify rotated credentials after writing them to the operating-system
+  credential store.
+
 ## [2.4.17] - 2026-07-23
 
 - Restrict the pinned engine install to the Capix Code runtime workspace so

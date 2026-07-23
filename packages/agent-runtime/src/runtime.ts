@@ -69,7 +69,7 @@ import {
 } from './receipts.js';
 import { RuntimeStore, DEFAULT_DB_PATH, type SessionRow } from './store.js';
 
-const RUNTIME_VERSION = '2.4.17';
+const RUNTIME_VERSION = '2.4.18';
 const DEFAULT_MODEL = 'capix/auto';
 const DEFAULT_MAX_TOOL_ROUNDS = 8;
 const APPROVAL_TIMEOUT_MS = 10 * 60_000;
