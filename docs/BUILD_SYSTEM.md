@@ -18,7 +18,7 @@ supported platform.
 Every artifact is built and smoke-tested on a **native runner** — no
 cross-compilation:
 
-- macOS arm64 (`macos-latest`), macOS x64 (`macos-15-intel`)
+- macOS arm64 (`macos-14`), macOS x64 (`macos-15-intel`)
 - Linux x64 (`ubuntu-latest`), Linux arm64 (`ubuntu-24.04-arm`)
 - Windows x64 (`windows-latest`)
 
@@ -76,7 +76,7 @@ Builds every package and produces one `release-artifacts/` directory:
 ```bash
 scripts/build-all.sh                     # everything
 scripts/build-all.sh --skip-ide          # skip the heavy IDE build
-scripts/build-all.sh --upload v2.4.11    # upload to the GitHub release
+scripts/build-all.sh --upload v2.4.12    # upload to the GitHub release
 ```
 
 Package checkouts resolve from `CAPIX_CODE_DIR`, `CAPIX_MCP_DIR`,
@@ -115,7 +115,7 @@ upload.
 To yank a bad published release:
 
 ```bash
-gh workflow run build.yml -f rollback_tag=v2.4.11
+gh workflow run build.yml -f rollback_tag=v2.4.12
 ```
 
 The rollback job marks the bad release as a pre-release with a `YANKED` note

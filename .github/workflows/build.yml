@@ -44,7 +44,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          # Pin Apple silicon to the same stable runner used by the IDE
+          # release. `macos-latest` can advance independently and already
+          # produced a customer-runtime build failure that did not reproduce
+          # on macos-14 or a local Apple-silicon build.
+          - os: macos-14
             platform: darwin
             arch: arm64
           - os: macos-15-intel
@@ -107,7 +111,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-14
             platform: darwin
             arch: arm64
             npm-platform: darwin

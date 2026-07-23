@@ -1,6 +1,6 @@
 {
   "name": "@capix/agent-runtime",
-  "version": "2.4.11",
+  "version": "2.4.12",
   "private": true,
   "type": "module",
   "description": "Capix agent runtime — modes, specialists, permission-checked tools, durable SQLite sessions, plans/diffs/receipts, ACP JSON-RPC transport",
