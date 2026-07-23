@@ -252,10 +252,12 @@ jobs:
           gh release view "${{ inputs.release_tag }}" --repo "${{ github.repository }}"
           test "$(node -p 'require("./package.json").version')" = "${{ inputs.version }}"
       - name: Publish capix-code
-        run: npm publish --access public --provenance
-        # OIDC trusted publishing: no NODE_AUTH_TOKEN env var.
-        # npm uses the GitHub OIDC token because the package is registered
-        # as a trusted publisher on npmjs.com. To enable, the package owner
-        # configures trust under: npmjs.com → capix-code → Settings →
-        # Publishing access → Configure trusted publisher → add
-        # CapIX-Protocol/CapIX-Code and workflow filename release-binaries.yml.
+        # Legacy npm auth via NPM_TOKEN secret. The previous --provenance
+        # path returned E404 on every release run since v2.3.6 because the
+        # npmjs.com trusted-publisher config was never completed for the
+        # CapIX-Protocol/CapIX-Code → capix-code package. When that config
+        # is in place, this step can switch back to `npm publish --access
+        # public --provenance` with NODE_AUTH_TOKEN removed.
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
