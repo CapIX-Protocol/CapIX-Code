@@ -12,7 +12,7 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, ExitCode};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Parser)]
 #[command(
@@ -646,6 +646,66 @@ fn canonical_balance_usd(billing: &serde_json::Value) -> String {
 const WEB_ORIGIN: &str = "https://www.capix.network";
 const KEYRING_SERVICE: &str = "capix-code";
 const KEYRING_ACCOUNT: &str = "oauth-refresh-token";
+const REFRESH_LOCK_DIRECTORY: &str = "capix-code-oauth-refresh.lock";
+
+/// Cross-process guard for rotating refresh tokens. OAuth refresh tokens are
+/// single-use; two launchers reading the same token concurrently can trigger
+/// replay protection and revoke the whole session family.
+struct RefreshLock {
+    path: PathBuf,
+}
+
+impl RefreshLock {
+    fn acquire() -> Result<Self, String> {
+        let path = std::env::temp_dir().join(REFRESH_LOCK_DIRECTORY);
+        let started = Instant::now();
+        loop {
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Ok(Self { path }),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // Recover a lock left by a crashed process, but never
+                    // steal one from an active refresh.
+                    let stale = std::fs::metadata(&path)
+                        .and_then(|metadata| metadata.modified())
+                        .and_then(|modified| modified.elapsed().map_err(std::io::Error::other))
+                        .map(|elapsed| elapsed > Duration::from_secs(30))
+                        .unwrap_or(false);
+                    if stale {
+                        let _ = std::fs::remove_dir(&path);
+                        continue;
+                    }
+                    if started.elapsed() >= Duration::from_secs(20) {
+                        return Err(
+                            "another Capix Code process is refreshing the session; retry shortly"
+                                .to_string(),
+                        );
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(error) => {
+                    return Err(format!("could not lock the Capix session refresh: {error}"))
+                }
+            }
+        }
+    }
+}
+
+impl Drop for RefreshLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir(&self.path);
+    }
+}
+
+fn refresh_rejection_is_definitive(status: u16, body: &str) -> bool {
+    if status != 400 && status != 401 {
+        return false;
+    }
+    let normalized = body.to_ascii_lowercase();
+    normalized.contains("invalid_grant")
+        || normalized.contains("invalid_token")
+        || normalized.contains("token_reuse")
+        || normalized.contains("revoked")
+}
 
 fn keyring_get_password() -> Result<String, String> {
     let (send, receive) = std::sync::mpsc::channel();
@@ -827,6 +887,10 @@ fn access_token() -> Result<String, String> {
             return Ok(api_key.to_string());
         }
     }
+    // The lock must be acquired before reading the refresh token. A process
+    // waiting here will then read the newly rotated token, not reuse the old
+    // one that another process has just exchanged.
+    let _refresh_lock = RefreshLock::acquire()?;
     // One-time migration for pre-2.2 installs. The plaintext compatibility
     // file is deleted immediately after importing the refresh token.
     let refresh = match keyring_get_password() {
@@ -846,8 +910,9 @@ fn access_token() -> Result<String, String> {
             }
         },
     };
-    let token_result: Result<TokenResponse, String> = runtime()?.block_on(async {
-        let response = http_client()?
+    let token_result: Result<TokenResponse, (Option<u16>, String)> = runtime()?.block_on(async {
+        let response = http_client()
+            .map_err(|error| (None, error))?
             .post(format!("{WEB_ORIGIN}/oauth/token"))
             .form(&[
                 ("grant_type", "refresh_token"),
@@ -856,20 +921,33 @@ fn access_token() -> Result<String, String> {
             ])
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| (None, e.to_string()))?;
         if !response.status().is_success() {
-            return Err("Capix session expired".into());
+            let status = response.status().as_u16();
+            let body = response.text().await.unwrap_or_default();
+            return Err((Some(status), body));
         }
         response
             .json::<TokenResponse>()
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| (None, e.to_string()))
     });
     let token = match token_result {
         Ok(value) => value,
-        Err(_) => {
-            let _ = keyring_delete_password();
-            return Err("session expired; run `capix-code login`".into());
+        Err((status, detail)) => {
+            if status
+                .map(|code| refresh_rejection_is_definitive(code, &detail))
+                .unwrap_or(false)
+            {
+                let _ = keyring_delete_password();
+                return Err("session expired; run `capix-code login`".into());
+            }
+            let suffix = status
+                .map(|code| format!(" (HTTP {code})"))
+                .unwrap_or_default();
+            return Err(format!(
+                "could not refresh the Capix session{suffix}; credentials were preserved, retry shortly"
+            ));
         }
     };
     // `set_password` atomically replaces the existing credential. Never
@@ -877,6 +955,11 @@ fn access_token() -> Result<String, String> {
     // been durably accepted by the OS credential store.
     keyring_set_password(token.refresh_token.clone())
         .map_err(|error| format!("could not rotate the OS credential: {error}"))?;
+    let stored = keyring_get_password()
+        .map_err(|error| format!("could not verify the rotated OS credential: {error}"))?;
+    if stored != token.refresh_token {
+        return Err("OS credential verification failed; sign-in state was not confirmed".into());
+    }
 
     Ok(token.access_token)
 }
@@ -2571,5 +2654,26 @@ mod tests {
             "5.00"
         );
         assert_eq!(canonical_balance_usd(&serde_json::json!({})), "unavailable");
+    }
+
+    #[test]
+    fn only_definitive_oauth_rejections_clear_the_session() {
+        assert!(refresh_rejection_is_definitive(
+            400,
+            r#"{"error":"invalid_grant"}"#
+        ));
+        assert!(refresh_rejection_is_definitive(
+            401,
+            r#"{"error":"revoked_token"}"#
+        ));
+        assert!(!refresh_rejection_is_definitive(
+            429,
+            r#"{"error":"rate_limited"}"#
+        ));
+        assert!(!refresh_rejection_is_definitive(
+            503,
+            r#"{"error":"temporarily_unavailable"}"#
+        ));
+        assert!(!refresh_rejection_is_definitive(400, "malformed response"));
     }
 }
