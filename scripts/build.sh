@@ -165,6 +165,11 @@ globalThis.fetch = async (input, init) => {
   }
   return response;
 };
+// capix-mcp validates that a credential-shaped value exists during startup.
+// This public sentinel is deliberately unusable; it keeps tool discovery
+// available while signed out, and the 401 path above replaces it with a
+// short-lived broker token before retrying any protected request.
+if (!process.env.CAPIX_API_KEY) process.env.CAPIX_API_KEY = "cpxk_broker_pending";
 await import(new URL("./index.js", import.meta.url).href);
 MCPWRAPPER
   chmod 0755 "$ARTIFACT/mcp/capix-mcp.js"

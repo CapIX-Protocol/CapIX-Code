@@ -11,13 +11,21 @@ afterEach(() => {
 });
 
 describe('release identity gates', () => {
+  it('keeps packaged MCP tool registration available before login', () => {
+    const source = readFileSync(resolve('scripts/build.sh'), 'utf8');
+    expect(source).toContain('if (!process.env.CAPIX_API_KEY)');
+    expect(source).toContain('cpxk_broker_pending');
+    expect(source).toContain('if (response.status !== 401) return response');
+    expect(source).toContain('const token = await brokerToken()');
+  });
+
   it('includes the product-coupled agent runtime in consistency enforcement', () => {
     const source = readFileSync(resolve('scripts/check-release-consistency.mjs'), 'utf8');
     expect(source).toContain('packages/agent-runtime/package.json');
     expect(source).toContain('agentRuntimeVersion');
     expect(source).toContain('agentRuntimeReportedVersion');
 
-    const result = spawnSync('node', ['scripts/check-release-consistency.mjs', '2.4.10'], {
+    const result = spawnSync('node', ['scripts/check-release-consistency.mjs', '2.4.11'], {
       cwd: resolve('.'),
       encoding: 'utf8',
     });
