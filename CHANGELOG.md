@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.16] - 2026-07-23
+
+- Resolve the npm meta-package root with `fileURLToPath`, preventing Windows
+  drive-letter paths from being misread as missing launcher files.
+
 ## [2.4.15] - 2026-07-23
 
 - Made the Windows npm release smoke invoke `npm.cmd` through the system shell,

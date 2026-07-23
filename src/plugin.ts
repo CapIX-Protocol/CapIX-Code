@@ -131,7 +131,7 @@ export function isAutonomousMode(env: NodeJS.ProcessEnv = process.env): boolean 
   return env.CAPIX_AUTONOMOUS === '1';
 }
 
-export const CAPIX_PLUGIN_VERSION = '2.4.15';
+export const CAPIX_PLUGIN_VERSION = '2.4.16';
 export const CAPIX_ACP_VERSION = '1';
 
 /** Settings the launcher may pass via plugin options. */

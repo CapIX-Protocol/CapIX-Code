@@ -1,6 +1,6 @@
 {
   "name": "@capix/runtime-provider",
-  "version": "2.4.15",
+  "version": "2.4.16",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
