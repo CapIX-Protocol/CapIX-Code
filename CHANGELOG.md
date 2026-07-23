@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.17] - 2026-07-23
+
+- Restrict the pinned engine install to the Capix Code runtime workspace so
+  unrelated web-console preview dependencies cannot break customer releases.
+- Execute the generated Windows npm command shim through the Windows shell
+  without manually double-quoting its path.
+
 ## [2.4.16] - 2026-07-23
 
 - Resolve the npm meta-package root with `fileURLToPath`, preventing Windows

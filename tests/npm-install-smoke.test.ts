@@ -26,7 +26,7 @@ describe('final npm customer install smoke', () => {
       mkdirSync(join(customer, 'bin'), { recursive: true });
       mkdirSync(join(customer, 'engine'), { recursive: true });
       mkdirSync(artifacts, { recursive: true });
-      const executable = '#!/bin/sh\necho "Capix Code 2.4.16"\nexit 0\n';
+      const executable = '#!/bin/sh\necho "Capix Code 2.4.17"\nexit 0\n';
       writeFileSync(bin, executable);
       writeFileSync(engine, executable);
       chmodSync(bin, 0o755);
@@ -34,7 +34,7 @@ describe('final npm customer install smoke', () => {
 
       const platform = process.platform;
       const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-      const name = `capix-code-2.4.16-${platform}-${arch}-unsigned.tar.gz`;
+      const name = `capix-code-2.4.17-${platform}-${arch}-unsigned.tar.gz`;
       const archive = join(artifacts, name);
       const packed = spawnSync('tar', ['-czf', archive, '-C', join(root, 'payload'), 'customer']);
       expect(packed.status, packed.stderr?.toString()).toBe(0);

@@ -86,8 +86,8 @@ dist/customer/bin/capix-code doctor
 For CI/cross-platform release builds, tag a version:
 
 ```bash
-git tag -a v2.4.16 -m "Capix Code v2.4.16"
-git push origin v2.4.16
+git tag -a v2.4.17 -m "Capix Code v2.4.17"
+git push origin v2.4.17
 # The release pipeline builds unsigned customer runtimes natively on macOS
 # arm64/x64, Linux arm64/x64 and Windows x64. It publishes adjacent SHA-256
 # sidecars, an SBOM, provenance and an immutable release manifest only after

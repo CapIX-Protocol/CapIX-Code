@@ -72,14 +72,11 @@ try {
   );
   if (!existsSync(shim)) throw new Error('installed npm command shim is missing');
   const run = (args) => {
-    if (process.platform === 'win32') {
-      execFileSync('cmd.exe', ['/d', '/s', '/c', `"${shim}" ${args.join(' ')}`], {
-        env,
-        stdio: 'inherit',
-      });
-    } else {
-      execFileSync(shim, args, { env, stdio: 'inherit' });
-    }
+    execFileSync(shim, args, {
+      env,
+      shell: process.platform === 'win32',
+      stdio: 'inherit',
+    });
   };
   run(['--version']);
   run(['doctor']);
