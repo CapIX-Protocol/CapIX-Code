@@ -113,3 +113,21 @@ TARGET="${INSTALL_DIR}/capix-code"
 
 echo "Installed verified Capix Code ${VERSION} at ${TARGET}"
 echo "This artifact is unsigned. Verification used the release's exact SHA-256 manifest entry."
+
+# Detect if the install directory is on the user's PATH. On macOS,
+# ~/.local/bin is not on PATH by default — a customer who runs the
+# curl installer sees "Installed" but then hits "command not found".
+# Warn them with the exact one-line fix instead of leaving them stuck.
+case ":${PATH}:" in
+  *":${INSTALL_DIR}:"*) ;;
+  *)
+    echo ""
+    echo "⚠  ${INSTALL_DIR} is not on your PATH."
+    echo "  Add it to your shell profile so 'capix-code' is findable:"
+    echo ""
+    echo "    echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.zshrc"
+    echo "    source ~/.zshrc"
+    echo ""
+    echo "  Then run: capix-code --version"
+    ;;
+esac
