@@ -2,6 +2,17 @@
 set -euo pipefail
 
 VERSION="${CAPIX_CODE_VERSION:-${1:-}}"
+
+# --setup-path: opt-in flag that appends INSTALL_DIR to the user's shell
+# profile (.zshrc on macOS default zsh, .bashrc on Linux) so capix-code is
+# immediately findable on the next terminal. Pass it as the FIRST arg.
+SETUP_PATH=false
+if [ "${1:-}" = "--setup-path" ]; then
+  SETUP_PATH=true
+  shift
+  VERSION="${CAPIX_CODE_VERSION:-${1:-}}"
+fi
+
 RELEASE_BASE_URL="${CAPIX_RELEASE_BASE_URL:-https://github.com/CapIX-Protocol/Capix-Code/releases/download}"
 INSTALL_DIR="${CAPIX_INSTALL_DIR:-${CAPIX_CODE_INSTALL_DIR:-${HOME}/.local/bin}}"
 RUNTIME_DIR="${CAPIX_CODE_RUNTIME_DIR:-${HOME}/.local/share/capix-code}"
@@ -117,17 +128,39 @@ echo "This artifact is unsigned. Verification used the release's exact SHA-256 m
 # Detect if the install directory is on the user's PATH. On macOS,
 # ~/.local/bin is not on PATH by default — a customer who runs the
 # curl installer sees "Installed" but then hits "command not found".
-# Warn them with the exact one-line fix instead of leaving them stuck.
+# If --setup-path was passed, write the export to the right profile
+# automatically. Otherwise, print the exact one-line fix.
 case ":${PATH}:" in
   *":${INSTALL_DIR}:"*) ;;
   *)
-    echo ""
-    echo "⚠  ${INSTALL_DIR} is not on your PATH."
-    echo "  Add it to your shell profile so 'capix-code' is findable:"
-    echo ""
-    echo "    echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.zshrc"
-    echo "    source ~/.zshrc"
-    echo ""
-    echo "  Then run: capix-code --version"
+    if [ "$SETUP_PATH" = "true" ]; then
+      # Pick the right profile: .zshrc on macOS (default shell),
+      # .bashrc on Linux. Fall back to .profile for others.
+      PROFILE="$HOME/.zshrc"
+      [ -f "$PROFILE" ] || PROFILE="$HOME/.bashrc"
+      [ -f "$PROFILE" ] || PROFILE="$HOME/.profile"
+      LINE="export PATH=\"${INSTALL_DIR}:\$PATH\""
+      if grep -qF "$LINE" "$PROFILE" 2>/dev/null; then
+        echo "✓  ${INSTALL_DIR} already on PATH in ${PROFILE}"
+      else
+        printf '\n# Added by capix-code installer (%s)\n%s\n' "$(date -u +%F)" "$LINE" >> "$PROFILE"
+        echo "✓  Added ${INSTALL_DIR} to PATH in ${PROFILE}"
+        echo "   Open a new terminal, or run: source ${PROFILE}"
+      fi
+    else
+      echo ""
+      echo "⚠  ${INSTALL_DIR} is not on your PATH."
+      echo "  Re-run with --setup-path to add it automatically:"
+      echo ""
+      echo "    curl -fsSL https://raw.githubusercontent.com/CapIX-Protocol/CapIX-Code/main/scripts/install.sh \\"
+      echo "      | bash -s -- v2.4.19 --setup-path"
+      echo ""
+      echo "  Or add it manually:"
+      echo ""
+      echo "    echo 'export PATH=\"${INSTALL_DIR}:\$PATH\"' >> ~/.zshrc"
+      echo "    source ~/.zshrc"
+      echo ""
+      echo "  Then run: capix-code --version"
+    fi
     ;;
 esac
